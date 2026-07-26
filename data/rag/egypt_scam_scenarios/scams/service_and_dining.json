@@ -1,0 +1,32 @@
+{
+  "category": "service_and_dining",
+  "scams": [
+    {
+      "scam_id": "SERV_001",
+      "name": "Laundry Per-Piece Billing",
+      "setup": "Laundry service quotes a price that sounds like a flat/bag rate.",
+      "mechanism": "Later clarified as per individual item, inflating the bill (e.g. charged per sock).",
+      "countermeasure": "Confirm 'per kilo/bag' vs 'per piece' pricing before handing over laundry.",
+      "severity": "low",
+      "sources": ["egypt_scams_insanity_guide", "gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "SERV_002",
+      "name": "Unrequested Table Items",
+      "setup": "Water, bread, or appetizers placed on the table without being ordered.",
+      "mechanism": "Assumed complimentary by many travelers, then charged.",
+      "countermeasure": "Ask 'is this included?' before consuming anything not explicitly ordered.",
+      "severity": "low",
+      "sources": ["gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "SERV_003",
+      "name": "Manual Receipt Padding",
+      "setup": "Cashier manually adds a small extra line item to a receipt.",
+      "mechanism": "Tests whether the customer checks the total; easily reversed if caught, rarely challenged if not.",
+      "countermeasure": "Review itemized receipts before paying, especially at tourist-area shops/markets.",
+      "severity": "low",
+      "sources": ["gemini_synthesis_doc"]
+    }
+  ]
+}

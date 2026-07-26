@@ -1,0 +1,55 @@
+{
+  "category": "transportation",
+  "scams": [
+    {
+      "scam_id": "TRANS_001",
+      "name": "Currency Bait-and-Switch",
+      "setup": "Street taxi (not app-based) agrees to a flat number with no currency stated up front.",
+      "hook_dialogue": ["It was fifty dollars, not fifty pounds", "You said fifty US"],
+      "mechanism": "Ambiguous verbal price lets driver reinterpret currency after the ride is complete and leverage sunk-cost/no-alternative pressure.",
+      "countermeasure": "State currency explicitly before entering the vehicle ('50 Egyptian pounds, confirm?'). Prefer app-based rides (Uber/Careem/InDrive) where price is fixed pre-ride.",
+      "severity": "medium",
+      "sources": ["100_hours_scam_capital", "avoiding_scammers_in_egypt", "gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "TRANS_002",
+      "name": "Fake Uber / Unlicensed Approach",
+      "setup": "Someone approaches at airport/street claiming to be the booked rideshare driver, no app confirmation.",
+      "hook_dialogue": ["Uber? I am your driver", "Come, I take you"],
+      "mechanism": "Exploits traveler fatigue/urgency at arrival; once in the car, no app record means price is whatever the driver decides.",
+      "countermeasure": "Never accept a ride without matching the license plate and driver name shown in-app first.",
+      "severity": "medium",
+      "sources": ["egypt_travel_guide_no_bs", "gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "TRANS_003",
+      "name": "In-App Price Override",
+      "setup": "Ride booked correctly via app, but driver demands more cash or foreign currency at drop-off.",
+      "hook_dialogue": ["App price too low, pay more", "Dollars only"],
+      "mechanism": "Relies on traveler not knowing local norms/refusing is possible; social pressure to avoid conflict.",
+      "countermeasure": "Pay only the in-app amount. Screenshot the fare if needed. This is refusable without confrontation risk since it's a documented transaction.",
+      "severity": "low-medium",
+      "sources": ["first_time_in_egypt_guide", "gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "TRANS_004",
+      "name": "Terminal Transfer Misinformation",
+      "setup": "Airport taxi driver claims a paid car is required to move between Cairo airport terminals.",
+      "hook_dialogue": ["No walking, too far, you need taxi"],
+      "mechanism": "Traveler unfamiliar with layout has no way to verify claim in the moment.",
+      "countermeasure": "Terminals 2 and 3 are walkable; a free/cheap monorail connects to Terminal 1. Verify with airport signage, not touts.",
+      "severity": "low",
+      "sources": ["gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "TRANS_005",
+      "name": "En-Route Interception / Fake Road Closure",
+      "setup": "Men flag down or block a taxi heading to Giza pyramids, claim the road ahead is closed.",
+      "hook_dialogue": ["Road closed, police only", "You must take camel from here"],
+      "mechanism": "Creates false urgency to force an on-the-spot switch to a commission-paying camel/horse operator before the tourist can verify.",
+      "countermeasure": "Stay in the vehicle, tell the driver to continue to the official gate; treat unofficial street 'closures' as near-certain scams.",
+      "severity": "medium",
+      "sources": ["reddit_honesty_thread", "gemini_synthesis_doc"]
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "category": "airport_and_security",
+  "scams": [
+    {
+      "scam_id": "AIR_001",
+      "name": "SIM Card Data Shortchange",
+      "setup": "Airport kiosk sells a SIM card advertised at a high data allowance (e.g. 20GB).",
+      "mechanism": "Only a fraction (e.g. 5GB) is actually loaded, or a short-lived trial/shared plan is used; discovered days later when data runs out.",
+      "countermeasure": "Check data balance via the carrier's own USSD/app code immediately after purchase, before leaving the kiosk.",
+      "severity": "low",
+      "sources": ["100_hours_scam_capital", "watch_out_scams_cairo_vlog", "gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "AIR_002",
+      "name": "Security 'Special Treatment' Tip Solicitation",
+      "setup": "Security staff offer to skip a step (shoes off, extra bin) as a 'favor.'",
+      "mechanism": "Manufactures a fake privilege to justify a tip request from an official-looking source, which raises compliance.",
+      "countermeasure": "Decline politely; official procedures don't require tips. This is a low-stakes, low-severity nuisance rather than a real security process.",
+      "severity": "low",
+      "sources": ["egypt_travel_guide_no_bs", "reddit_honesty_thread"]
+    },
+    {
+      "scam_id": "AIR_003",
+      "name": "Equipment Confiscation Threat",
+      "setup": "Officials flag a GoPro/microphone/camera as 'professional equipment' requiring a fee to pass.",
+      "mechanism": "Fear of losing gear pressures quick payment rather than dispute.",
+      "countermeasure": "Ask for a written/official receipt for any fee; legitimate customs fees are documented, informal ones usually aren't.",
+      "severity": "medium",
+      "sources": ["harassment_scams_pyramids", "egypt_travel_guide_no_bs"]
+    },
+    {
+      "scam_id": "AIR_004",
+      "name": "Forced Luggage Assistance",
+      "setup": "A handler grabs bags before being asked and carries them a short distance.",
+      "mechanism": "Reciprocity pressure - service was rendered without consent, so a tip feels owed.",
+      "countermeasure": "Firmly hold onto your own luggage; state 'no, thank you' immediately rather than after the fact.",
+      "severity": "low",
+      "sources": ["100_hours_scam_capital", "gemini_synthesis_doc"]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "category": "interpersonal_and_social",
+  "note": "Romance/relationship-manipulation scam content (scam_id SOC_001) intentionally excluded from this file per requester's direction.",
+  "scams": [
+    {
+      "scam_id": "SOC_002",
+      "name": "'Relative in Your Country' Opener",
+      "setup": "A stranger claims a personal connection to the tourist's home country to build instant rapport.",
+      "mechanism": "Lowers social guard, leads into an invitation to a relative's shop.",
+      "countermeasure": "Friendly small talk from strangers who quickly pivot to 'come see my shop' is a strong scam signal, regardless of the story.",
+      "severity": "low-medium",
+      "sources": ["gemini_synthesis_doc"]
+    }
+  ]
+}

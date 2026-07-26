@@ -1,0 +1,145 @@
+{
+  "currency": {
+    "name": "Egyptian Pound",
+    "iso_code": "EGP",
+    "symbol": "LE / ج.م",
+    "issuing_authority": "Central Bank of Egypt"
+  },
+  "coins": [
+    {
+      "id": "coin_25_piastres",
+      "denomination": "25 Piastres (Quarter Pound)",
+      "value_in_egp": 0.25,
+      "type": "Coin",
+      "material": "Brass-plated Steel / Nickel-plated Steel",
+      "obverse_design": "Value in Arabic numerals and English text",
+      "reverse_design": "Islamic geometric pattern or historical motif",
+      "image_url_front": "https://upload.wikimedia.org/wikipedia/commons/d/d7/Egypt-25-piastres-2011.jpg",
+      "image_url_back": "https://upload.wikimedia.org/wikipedia/commons/d/d7/Egypt-25-piastres-2011.jpg"
+    },
+    {
+      "id": "coin_50_piastres",
+      "denomination": "50 Piastres (Half Pound)",
+      "value_in_egp": 0.50,
+      "type": "Coin",
+      "material": "Brass-plated Steel",
+      "obverse_design": "Value and issue year",
+      "reverse_design": "Queen Cleopatra bust",
+      "image_url_front": "https://upload.wikimedia.org/wikipedia/commons/7/7a/50_Egyptian_piastres_obverse.JPG",
+      "image_url_back": "https://upload.wikimedia.org/wikipedia/commons/6/62/50_Egyptian_piastres_reverse.jpg"
+    },
+    {
+      "id": "coin_1_pound",
+      "denomination": "1 Egyptian Pound",
+      "value_in_egp": 1.00,
+      "type": "Bi-metallic Coin",
+      "material": "Brass-plated Steel ring with Nickel-plated Steel center",
+      "obverse_design": "Value in Arabic and English, surrounded by outer ring pattern",
+      "reverse_design": "Mask of Tutankhamun",
+      "image_url_front": "https://upload.wikimedia.org/wikipedia/commons/a/a0/100_EPT_obverse.JPG",
+      "image_url_back": "https://upload.wikimedia.org/wikipedia/commons/7/7a/100_EPT_reverse.JPG"
+    }
+  ],
+  "banknotes": [
+    {
+      "id": "note_1_pound",
+      "denomination": "1 EGP",
+      "value_in_egp": 1.00,
+      "substrate": "Cotton Paper",
+      "dimensions_mm": "140 x 70",
+      "obverse_design": "Mosque and Madrasa of Sultan Qaitbay",
+      "reverse_design": "Abu Simbel Temples",
+      "image_url_front": "https://upload.wikimedia.org/wikipedia/commons/9/9b/1EGP-2001%285%29.png",
+      "image_url_back": "https://upload.wikimedia.org/wikipedia/commons/6/66/1_Egyptian_Pound_Backside.jpg"
+    },
+    {
+      "id": "note_5_pounds",
+      "denomination": "5 EGP",
+      "value_in_egp": 5.00,
+      "substrate": "Cotton Paper",
+      "dimensions_mm": "145 x 70",
+      "obverse_design": "Ibn Tulun Mosque",
+      "reverse_design": "Pharaonic bas-relief depicting Nile agriculture",
+      "image_url_front": "https://upload.wikimedia.org/wikipedia/commons/1/16/5EGP-2012.png",
+      "image_url_back": "https://upload.wikimedia.org/wikipedia/commons/2/26/5_EGP_reverse_2011-5-19.jpg"
+    },
+    {
+      "id": "note_10_pounds_paper",
+      "denomination": "10 EGP (Paper Series)",
+      "value_in_egp": 10.00,
+      "substrate": "Cotton Paper",
+      "dimensions_mm": "150 x 70",
+      "obverse_design": "Al-Rifa'i Mosque",
+      "reverse_design": "Statue of Khafre (Chephren) seated",
+      "image_url_front": "https://upload.wikimedia.org/wikipedia/commons/e/e9/EGP_10_Pounds_2003_%28Front%29.png",
+      "image_url_back": "https://upload.wikimedia.org/wikipedia/commons/5/5e/EGP_10_Pounds_2003_%28Back%29.png"
+    },
+    {
+      "id": "note_10_pounds_polymer",
+      "denomination": "10 EGP (Polymer Series)",
+      "value_in_egp": 10.00,
+      "substrate": "Polymer (Plastic)",
+      "dimensions_mm": "132 x 69",
+      "obverse_design": "Al-Fattah Al-Aleem Mosque (New Administrative Capital)",
+      "reverse_design": "Statue of Queen Hatshepsut and ancient library motifs",
+      "image_url_front": "https://upload.wikimedia.org/wikipedia/commons/8/8f/10_EGP_2022_Polymer_-_front.jpg",
+      "image_url_back": "https://upload.wikimedia.org/wikipedia/commons/0/0b/10_EGP_2022_Polymer_-_observe.jpg"
+    },
+    {
+      "id": "note_20_pounds_paper",
+      "denomination": "20 EGP (Paper Series)",
+      "value_in_egp": 20.00,
+      "substrate": "Cotton Paper",
+      "dimensions_mm": "155 x 70",
+      "obverse_design": "Mosque of Muhammad Ali",
+      "reverse_design": "Pharaonic war chariot relief",
+      "image_url_front": "https://upload.wikimedia.org/wikipedia/commons/8/83/Egypt_20_Pound_2009_obverse.jpg",
+      "image_url_back": "https://upload.wikimedia.org/wikipedia/ar/6/69/EGP_20_Pounds_2001_%28Back%29.jpg"
+    },
+    {
+      "id": "note_20_pounds_polymer",
+      "denomination": "20 EGP (Polymer Series)",
+      "value_in_egp": 20.00,
+      "substrate": "Polymer (Plastic with tactile braille feature)",
+      "dimensions_mm": "137 x 69",
+      "obverse_design": "Mosque of Muhammad Ali",
+      "reverse_design": "Queen Cleopatra and Pharaonic chariot motif",
+      "image_url_front": "https://upload.wikimedia.org/wikipedia/commons/9/95/20_EGP_2022_Polymer_-_front_01.jpg",
+      "image_url_back": "https://upload.wikimedia.org/wikipedia/commons/5/53/20_EGP_2022_Polymer_-_rear.jpg"
+    },
+    {
+      "id": "note_50_pounds",
+      "denomination": "50 EGP",
+      "value_in_egp": 50.00,
+      "substrate": "Cotton Paper",
+      "dimensions_mm": "160 x 70",
+      "obverse_design": "Abu Hurayra / Abu al-Abbas al-Mursi Mosque",
+      "reverse_design": "Edfu Temple of Horus",
+      "image_url_front": "https://upload.wikimedia.org/wikipedia/commons/b/bb/EGP_50_Pounds_Dec_2001_%28Front%29.jpg",
+      "image_url_back": "https://upload.wikimedia.org/wikipedia/commons/9/98/EGP_50_Pounds_Dec_2001_%28Back%29.jpg"
+    },
+    {
+      "id": "note_100_pounds",
+      "denomination": "100 EGP",
+      "value_in_egp": 100.00,
+      "substrate": "Cotton Paper",
+      "dimensions_mm": "165 x 70",
+      "obverse_design": "Sultan Hassan Mosque",
+      "reverse_design": "Great Sphinx of Giza",
+      "image_url_front": "https://upload.wikimedia.org/wikipedia/commons/a/a7/EGP_100_Pounds_2015_%28Front%29.jpg",
+      "image_url_back": "https://upload.wikimedia.org/wikipedia/commons/b/b6/100_EGP_reverse_2014-1-26.jpg"
+    },
+    {
+      "id": "note_200_pounds",
+      "denomination": "200 EGP",
+      "value_in_egp": 200.00,
+      "substrate": "Cotton Paper",
+      "dimensions_mm": "165 x 73",
+      "obverse_design": "Mosque of Qani-Bay al-Rammah",
+      "reverse_design": "The Seated Scribe statue",
+      "image_url_front": "https://upload.wikimedia.org/wikipedia/commons/9/9a/EGP_200_Pounds_Apr_2007_%28Front%29.jpg",
+      "image_url_back": "https://upload.wikimedia.org/wikipedia/commons/1/1c/EGP_200_Pounds_Apr_2007_%28Back%29.jpg"
+    }
+  ]
+}
+

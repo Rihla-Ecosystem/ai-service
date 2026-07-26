@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+*.spec
+*.manifest
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.hypothesis/
+.coverage
+htmlcov/
+.coverage.*
+
+# Node
+node_modules/
+dist/
+
+# Environment files
+.env
+.env.local
+venv/
+.venv/
+env/
+
+# IDE & Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# Data
+*.jsonl
+*.csv
+
+# CLI / config
+pyrightconfig.json
+poetry.toml
+.python-version

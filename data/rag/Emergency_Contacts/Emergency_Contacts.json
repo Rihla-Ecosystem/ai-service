@@ -1,0 +1,87 @@
+
+{
+  "emergency_contacts": {
+    "unified_hotline": {
+      "number": "112",
+      "description": "Unified Emergency Hotline (Works without SIM credit or on locked phones)"
+    },
+    "primary_services": [
+      {
+        "service": "Ambulance",
+        "arabic_name": "الإسعاف",
+        "number": "123",
+        "notes": "Direct Ministry of Health dispatch for medical emergencies."
+      },
+      {
+        "service": "Police",
+        "arabic_name": "الشرطة",
+        "number": "122",
+        "notes": "Standard police response."
+      },
+      {
+        "service": "Tourist Police",
+        "arabic_name": "شرطة السياحة",
+        "number": "126",
+        "notes": "Multi-lingual assistance for foreign nationals, disputes, or tourist locations."
+      },
+      {
+        "service": "Fire Department",
+        "arabic_name": "المطافئ",
+        "number": "180",
+        "notes": "Fire emergencies and civil defense."
+      },
+      {
+        "service": "Anti-Harassment Hotline",
+        "arabic_name": "مناهضة التحرش",
+        "number": "15115",
+        "notes": "National Council for Women (NCW) hotline for support and legal guidance."
+      }
+    ],
+    "specialized_hotlines": [
+      {
+        "service": "Traffic Police",
+        "number": "128"
+      },
+      {
+        "service": "Highway Emergency / Road Rescue",
+        "number": "01221110000"
+      },
+      {
+        "service": "Natural Gas Emergency",
+        "number": "129"
+      },
+      {
+        "service": "Electricity Emergency",
+        "number": "121"
+      },
+      {
+        "service": "Mental Health Crisis Line",
+        "number": "16474"
+      }
+    ]
+  },
+  "procedures": {
+    "medical_emergencies": {
+      "primary_numbers": ["123", "112"],
+      "steps": [
+        "State exact location first, including notable landmarks or main intersection.",
+        "Provide a local landmark or ask a local nearby to speak to the dispatcher if language barrier arises.",
+        "Consider direct transport to the nearest hospital emergency room (Tawari') if traffic significantly delays ambulance arrival."
+      ]
+    },
+    "police_and_security": {
+      "primary_numbers": ["122", "126"],
+      "steps": [
+        "Use 126 for multi-lingual assistance at tourist sites or for foreign nationals.",
+        "In traffic collisions, notify 122 or 128 and avoid moving vehicles until advised by traffic officers to draft an official report (Mahdar)."
+      ]
+    },
+    "harassment_and_safety": {
+      "primary_numbers": ["15115", "122"],
+      "steps": [
+        "Contact NCW on 15115 for confidential reporting, legal support, and guidance.",
+        "In cases of immediate physical danger, call 122 or head to the nearest local police station (Qism El-Shorta)."
+      ]
+    }
+  }
+}

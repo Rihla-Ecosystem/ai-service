@@ -1,0 +1,51 @@
+{
+  "category": "ancient_sites_and_tours",
+  "scams": [
+    {
+      "scam_id": "SITE_001",
+      "name": "Fake Site Closure Redirect",
+      "setup": "A local shouts that a gate/street/site is closed for prayer or a holiday.",
+      "hook_dialogue": ["Closed today, holiday", "No entry this way"],
+      "mechanism": "Redirects toward a shop or paid animal ride under manufactured urgency.",
+      "countermeasure": "Verify at the actual official ticket booth/turnstile, never take a street tout's word for site status.",
+      "severity": "medium",
+      "sources": ["100_hours_scam_capital", "reddit_honesty_thread", "gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "SITE_002",
+      "name": "Unlicensed 'Guide' Approach",
+      "setup": "Men outside sites present themselves as guides without credentials.",
+      "mechanism": "Provides fabricated historical claims for a tip; no accountability since not actually licensed.",
+      "countermeasure": "Book licensed guides in advance through your hotel or a vetted tour operator; verify credentials on the spot if approached.",
+      "severity": "low-medium",
+      "sources": ["luxor_scam_outsmarted", "gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "SITE_003",
+      "name": "The Tomb 'Secret Area' / Fan Trap",
+      "setup": "A guard hands over an item (cardboard fan, points at 'secret' carving) unsolicited inside a tomb.",
+      "mechanism": "Creates a false sense of a rendered 'service' that obligates a tip; guard may act disappointed regardless of amount given to escalate further.",
+      "countermeasure": "Decline any unsolicited item or 'special access' immediately; don't accept objects from strangers inside sites.",
+      "severity": "low-medium",
+      "sources": ["avoid_scammer_luxor", "reddit_honesty_thread", "gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "SITE_004",
+      "name": "Camel/Horse Ride Extortion",
+      "setup": "Handler quotes a low price to mount the animal.",
+      "mechanism": "Once out in the desert away from other people, demands a much larger sum to make the animal kneel/return, functionally holding the rider hostage.",
+      "countermeasure": "Confirm total price, currency, and duration in writing/photo before mounting; avoid deals made far from the main entrance.",
+      "severity": "high",
+      "sources": ["100_hours_scam_capital", "gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "SITE_005",
+      "name": "Commission-Driven Guiding",
+      "setup": "Even legitimate hired guides may rush historical explanations to spend more time at partner shops.",
+      "mechanism": "Guide receives a commission on anything purchased at the stop.",
+      "countermeasure": "Set expectations upfront ('I'm not shopping today') and choose guides via reviews that don't mention shop stops.",
+      "severity": "low",
+      "sources": ["gemini_synthesis_doc", "egypt_travel_guide_no_bs"]
+    }
+  ]
+}

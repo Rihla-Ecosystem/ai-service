@@ -1,0 +1,67 @@
+{
+  "category": "shopping_and_retail",
+  "scams": [
+    {
+      "scam_id": "SHOP_001",
+      "name": "The 'Free Gift' Obligation Trap",
+      "setup": "Vendor places an item (papyrus scrap, scarab, fan) directly into the tourist's hands, saying it's free.",
+      "mechanism": "Reciprocity bias - once physically holding the item, declining to pay feels socially costly.",
+      "countermeasure": "Don't accept items placed in your hands; hands stay in pockets/crossed near touts.",
+      "severity": "low-medium",
+      "sources": ["100_hours_scam_capital", "gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "SHOP_002",
+      "name": "'Egyptian Price' Framing",
+      "setup": "Vendor claims a markedly high price is a special local/'Egyptian' price rather than a tourist markup.",
+      "mechanism": "Makes the tourist feel they've been let in on an insider deal, discouraging further negotiation.",
+      "countermeasure": "Research typical prices beforehand; negotiate from a fraction of the asking price regardless of framing.",
+      "severity": "low",
+      "sources": ["gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "SHOP_003",
+      "name": "Material Counterfeiting",
+      "setup": "Souvenirs sold as genuine papyrus, cashmere, or silver.",
+      "mechanism": "Banana-leaf paper or synthetic fabric is visually similar enough to pass casual inspection.",
+      "countermeasure": "Buy from museum gift shops or licensed cooperatives for anything claimed to be a specific authentic material.",
+      "severity": "low",
+      "sources": ["gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "SHOP_004",
+      "name": "Cash-Counting 'Help'",
+      "setup": "Vendor reaches to 'help' count bills handed over for payment.",
+      "mechanism": "Sleight-of-hand extracts a larger bill than owed during the 'count.'",
+      "countermeasure": "Count your own cash out loud, don't let anyone else touch it before the transaction is final.",
+      "severity": "medium",
+      "sources": ["gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "SHOP_005",
+      "name": "Card Terminal Overcharge",
+      "setup": "Paying by card; vendor enters a different amount into the terminal than agreed.",
+      "mechanism": "Relies on traveler not checking the screen before entering PIN/tapping.",
+      "countermeasure": "Always read the terminal amount before confirming payment.",
+      "severity": "medium",
+      "sources": ["gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "SHOP_006",
+      "name": "Dual Menu Pricing",
+      "setup": "Restaurant has an Arabic menu and a separate English menu with higher prices.",
+      "countermeasure": "Ask to see the same menu locals are using, or check posted prices photographed by other travelers.",
+      "severity": "low",
+      "sources": ["gemini_synthesis_doc"]
+    },
+    {
+      "scam_id": "SHOP_007",
+      "name": "'Pay What You Feel' Trap",
+      "setup": "Vendor or felucca captain refuses to name a price ('you are my friend, pay what's in your heart').",
+      "mechanism": "Removes a fixed number to negotiate against; any offer is met with performed offense to push for more.",
+      "countermeasure": "Insist on a fixed price before service begins; walk away if a vendor won't name one.",
+      "severity": "medium",
+      "sources": ["gemini_synthesis_doc"]
+    }
+  ]
+}
