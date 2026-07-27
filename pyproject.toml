@@ -21,7 +21,7 @@ dependencies = [
     "slowapi>=0.1.9",
     "pillow>=10.0.0",
     "imagehash>=4.3.0",
-    "gTTS>=2.5.0",
+    "gtts>=2.5.0",
     "pyyaml>=6.0.0",
 ]
 

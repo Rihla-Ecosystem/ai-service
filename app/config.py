@@ -1,5 +1,7 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+
+from pydantic import computed_field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -9,7 +11,9 @@ class Settings(BaseSettings):
     port: int = 3003
     log_level: str = "INFO"
 
-    gemini_api_keys: List[str] = []
+    # Read as plain string from .env
+    gemini_api_keys: str = ""
+
     jwt_access_secret: str = "change-me-in-production"
     internal_api_key: str = "change-me-in-production"
 
@@ -37,11 +41,17 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @computed_field
     @property
     def gemini_key_list(self) -> List[str]:
-        if isinstance(self.gemini_api_keys, str):
-            return [k.strip() for k in self.gemini_api_keys.split(",") if k.strip()]
-        return self.gemini_api_keys
+        if not self.gemini_api_keys:
+            return []
+
+        return [
+            key.strip()
+            for key in self.gemini_api_keys.split(",")
+            if key.strip()
+        ]
 
 
 settings = Settings()
