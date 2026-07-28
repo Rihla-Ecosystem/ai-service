@@ -13,6 +13,7 @@ async def get_safety_info(city: str) -> Optional[Dict[str, Any]]:
             resp = await client.get(
                 f"{settings.risk_service_url}/safety/current",
                 params={"city": city.lower()},
+                headers={"X-Internal-Api-Key": settings.internal_api_key},
                 timeout=10,
             )
             if resp.status_code == 200:
@@ -29,6 +30,7 @@ async def get_all_safety() -> Optional[Dict[str, Any]]:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 f"{settings.risk_service_url}/safety/current",
+                headers={"X-Internal-Api-Key": settings.internal_api_key},
                 timeout=10,
             )
             if resp.status_code == 200:

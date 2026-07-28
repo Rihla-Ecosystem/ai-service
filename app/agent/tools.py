@@ -204,6 +204,7 @@ async def _get_nearby_attractions(lat: float, lon: float, radius: int = 1000) ->
             resp = await client.get(
                 f"{settings.gis_service_url}/api/v1/nearby-sites",
                 params={"lat": lat, "lon": lon, "radius": radius},
+                headers={"X-Internal-Api-Key": settings.internal_api_key},
                 timeout=10,
             )
             if resp.status_code == 200:
@@ -247,6 +248,7 @@ async def _get_safety_info(city: str) -> str:
             resp = await client.get(
                 f"{settings.risk_service_url}/safety/current",
                 params={"city": city.lower()},
+                headers={"X-Internal-Api-Key": settings.internal_api_key},
                 timeout=10,
             )
             if resp.status_code == 200:

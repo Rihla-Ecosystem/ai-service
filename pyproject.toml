@@ -23,6 +23,7 @@ dependencies = [
     "imagehash>=4.3.0",
     "gtts>=2.5.0",
     "pyyaml>=6.0.0",
+    "pyjwt>=2.8.0",
 ]
 
 [project.optional-dependencies]

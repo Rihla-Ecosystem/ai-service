@@ -17,6 +17,7 @@ async def get_nearby_sites(
             resp = await client.get(
                 f"{settings.gis_service_url}/api/v1/nearby-sites",
                 params={"lat": lat, "lon": lon, "radius": radius},
+                headers={"X-Internal-Api-Key": settings.internal_api_key},
                 timeout=10,
             )
             if resp.status_code == 200:
@@ -38,6 +39,7 @@ async def get_context(
             resp = await client.get(
                 f"{settings.gis_service_url}/api/v1/context",
                 params={"lat": lat, "lon": lon, "radius": radius},
+                headers={"X-Internal-Api-Key": settings.internal_api_key},
                 timeout=10,
             )
             if resp.status_code == 200:

@@ -1,10 +1,11 @@
 import hashlib
 import json as json_mod
-from fastapi import APIRouter, File, Form, UploadFile, HTTPException
+from fastapi import APIRouter, File, Form, UploadFile, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
 
 from app.core.guardrails import check_output
+from app.core.auth import allow_access
 
 router = APIRouter()
 
@@ -29,6 +30,7 @@ async def identify_landmark(
     lat: Optional[float] = Form(None),
     lon: Optional[float] = Form(None),
     radius: int = Form(500),
+    user: dict = Depends(allow_access),
 ):
     image_bytes = await image.read()
     if not image_bytes:

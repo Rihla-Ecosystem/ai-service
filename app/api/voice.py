@@ -1,9 +1,10 @@
 import base64
-from fastapi import APIRouter, File, Form, UploadFile, HTTPException
+from fastapi import APIRouter, File, Form, UploadFile, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 
 from app.core.guardrails import check_input, check_output
+from app.core.auth import allow_access
 
 router = APIRouter()
 
@@ -20,6 +21,7 @@ async def voice_endpoint(
     lat: Optional[float] = Form(None),
     lon: Optional[float] = Form(None),
     conversation_id: Optional[str] = Form(None),
+    user: dict = Depends(allow_access),
 ):
     audio_bytes = await audio.read()
     if not audio_bytes:

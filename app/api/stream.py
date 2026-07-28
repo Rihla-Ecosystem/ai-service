@@ -1,12 +1,13 @@
 import json
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Any, Dict, Optional
 
 from app.core.system_prompt import build_system_prompt
 from app.core.guardrails import check_input
+from app.core.auth import allow_access
 
 logger = structlog.get_logger()
 
@@ -23,7 +24,7 @@ class StreamRequest(BaseModel):
 
 
 @router.post("/stream")
-async def chat_stream(req: StreamRequest):
+async def chat_stream(req: StreamRequest, user: dict = Depends(allow_access)):
     guard_result = check_input(req.message)
     if guard_result.blocked:
         async def blocked_stream():

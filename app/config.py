@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     langfuse_host: str = "https://cloud.langfuse.com"
 
     gis_service_url: str = "http://geocontext:8000"
-    risk_service_url: str = "http://risk-intelligence:3001"
+    risk_service_url: str = "http://risk-intelligence:3000"
     core_server_url: str = "http://core-server:3000"
 
     qdrant_host: str = "qdrant"
