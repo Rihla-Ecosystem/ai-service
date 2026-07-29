@@ -22,7 +22,7 @@ async def get_embedding(text: str) -> Optional[List[float]]:
     try:
         client = _get_client()
         result = client.models.embed_content(
-            model="models/text-embedding-004",
+            model="gemini-embedding-2",
             contents=[text],
         )
         return result.embeddings[0].values if result.embeddings else None
