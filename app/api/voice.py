@@ -1,14 +1,18 @@
 import base64
 import logging
 import re
+import secrets
 import struct
 from io import BytesIO
-from fastapi import APIRouter, File, Form, UploadFile, HTTPException, Depends
+from typing import Dict, Optional, Tuple
+
+from fastapi import APIRouter, File, Form, UploadFile, HTTPException, Depends, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional
 
 from gtts import gTTS
 
+from app.config import settings
 from app.core.guardrails import check_input, check_output
 from app.core.auth import allow_access
 from app.core.llm_client import begin_usage_tracking, consume_usage
@@ -16,6 +20,41 @@ from app.core.llm_client import begin_usage_tracking, consume_usage
 logger = logging.getLogger("app.api.voice")
 
 router = APIRouter()
+
+# Short-lived cache for generated speech served through /audio (streamed playback).
+_AUDIO_CACHE: Dict[str, Dict] = {}
+_AUDIO_CACHE_MAX = 50
+
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F1E0-\U0001F1FF"  # regional indicators
+    "\U0001F300-\U0001F5FF"  # misc symbols and pictographs
+    "\U0001F600-\U0001F64F"  # emoticons
+    "\U0001F680-\U0001F6FF"  # transport and map
+    "\U0001F700-\U0001F77F"  # alchemical
+    "\U0001F780-\U0001F7FF"  # geometric shapes extended
+    "\U0001F800-\U0001F8FF"  # supplemental arrows
+    "\U0001F900-\U0001F9FF"  # supplemental symbols and pictographs
+    "\U0001FA00-\U0001FA6F"  # chess symbols
+    "\U0001FA70-\U0001FAFF"  # symbols and pictographs extended-A
+    "\U00002600-\U000027BF"  # misc symbols, dingbats
+    "\U0000FE00-\U0000FE0F"  # variation selectors
+    "\U0000200D"             # zero-width joiner
+    "\U000020E3"             # combining enclosing keycap
+    "]"
+)
+
+
+def strip_for_speech(text: str) -> str:
+    """Remove emojis and markdown syntax so TTS does not read them aloud."""
+    if not text:
+        return text
+    text = _EMOJI_RE.sub("", text)
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"[`*_#>~|\\]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 def pcm_to_wav(pcm: bytes, sample_rate: int, channels: int, bits_per_sample: int) -> bytes:
@@ -40,23 +79,24 @@ def pcm_to_wav(pcm: bytes, sample_rate: int, channels: int, bits_per_sample: int
     return header + pcm
 
 
-def gtts_audio(text: str) -> Optional[str]:
+def gtts_audio_bytes(text: str) -> Optional[Tuple[bytes, str]]:
     try:
-        text = text[:200]
+        text = strip_for_speech(text)[:200]
+        if not text:
+            return None
         lang = "ar" if re.search(r"[\u0600-\u06FF]", text) else "en"
         mp3 = BytesIO()
         gTTS(text=text, lang=lang).write_to_fp(mp3)
-        audio_b64 = base64.b64encode(mp3.getvalue()).decode("utf-8")
-        return f"data:audio/mp3;base64,{audio_b64}"
+        return mp3.getvalue(), "audio/mpeg"
     except Exception:
         return None
 
 
-async def synthesize_speech(text: str, llm_client) -> Optional[str]:
+async def synthesize_speech(text: str, llm_client) -> Optional[Tuple[bytes, str]]:
     if not text:
         return None
     try:
-        tts = await llm_client.generate_speech(text)
+        tts = await llm_client.generate_speech(strip_for_speech(text))
         if tts:
             audio = tts["audio_bytes"]
             mime = tts.get("mime") or "audio/l16"
@@ -65,19 +105,37 @@ async def synthesize_speech(text: str, llm_client) -> Optional[str]:
                 sample_rate = int(m.group(1)) if m else 24000
                 channels = int(m.group(2)) if m else 1
                 wav = pcm_to_wav(audio, sample_rate, channels, 16)
-                return f"data:audio/wav;base64,{base64.b64encode(wav).decode('utf-8')}"
-            return f"data:{mime};base64,{base64.b64encode(audio).decode('utf-8')}"
+                return wav, "audio/wav"
+            return audio, mime
     except Exception as e:
         logger.warning("Gemini TTS failed, falling back to gTTS", error=str(e))
-    return gtts_audio(text)
+    return gtts_audio_bytes(text)
+
+
+def _cache_audio(audio: bytes, mime: str) -> str:
+    token = secrets.token_urlsafe(24)
+    _AUDIO_CACHE[token] = {"bytes": audio, "mime": mime}
+    if len(_AUDIO_CACHE) > _AUDIO_CACHE_MAX:
+        _AUDIO_CACHE.clear()
+    return token
 
 
 class VoiceResponse(BaseModel):
     text_response: str
     audio_response: Optional[str] = None
+    audio_url: Optional[str] = None
     conversation_id: Optional[str] = None
     usage: Optional[dict] = None
     model: Optional[str] = None
+
+
+@router.get("/audio")
+async def voice_audio(token: str = Query(...)):
+    """Serve a previously generated audio clip as a streaming response."""
+    entry = _AUDIO_CACHE.pop(token, None)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Audio not found or expired")
+    return StreamingResponse(iter([entry["bytes"]]), media_type=entry["mime"])
 
 
 @router.post("", response_model=VoiceResponse)
@@ -103,6 +161,13 @@ async def voice_endpoint(
         "If they ask about tourism in Egypt, provide helpful information. "
         "Be concise and friendly."
     )
+
+    if lat is not None and lon is not None:
+        system_prompt += (
+            f"\nThe user is currently at latitude {lat}, longitude {lon}."
+            " This IS the user's current location. Never claim you don't know "
+            "where the user is. Use this location to give relevant nearby advice."
+        )
 
     mime_type = audio.content_type or "audio/mpeg"
 
@@ -135,12 +200,19 @@ async def voice_endpoint(
             model = entry.get("model")
 
         audio_response = None
+        audio_url = None
         if text:
-            audio_response = await synthesize_speech(text, llm_client)
+            synthesized = await synthesize_speech(text, llm_client)
+            if synthesized:
+                audio_bytes_resp, mime = synthesized
+                token = _cache_audio(audio_bytes_resp, mime)
+                audio_url = f"/voice/audio?token={token}"
+                audio_response = f"data:{mime};base64,{base64.b64encode(audio_bytes_resp).decode('utf-8')}"
 
         return VoiceResponse(
             text_response=text,
             audio_response=audio_response,
+            audio_url=audio_url,
             conversation_id=conversation_id,
             usage=usage,
             model=model,

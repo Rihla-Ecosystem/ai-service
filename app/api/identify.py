@@ -69,8 +69,16 @@ async def identify_landmark(
         except Exception as e:
             nearby_context = ""
 
+    location_context = ""
+    if lat is not None and lon is not None:
+        location_context = (
+            f"\nThe user is currently at latitude {lat}, longitude {lon}."
+            " Use this location to help narrow down which landmark is pictured."
+        )
+
     system_prompt = (
         "You are an expert Egyptologist. Identify this landmark in Egypt. "
+        f"{location_context}\n"
         f"{nearby_context}\n\n"
         "Respond in JSON format with exactly these fields:\n"
         "{\n"

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     gemini_api_keys: str = ""
     gemini_model: str = "gemini-3.6-flash"
     jina_api_key: str = ""
+    tts_voice: str = "Zephyr"
 
     jwt_access_secret: str = "change-me-in-production"
     internal_api_key: str = "change-me-in-production"

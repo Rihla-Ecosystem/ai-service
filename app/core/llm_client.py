@@ -347,7 +347,7 @@ class GeminiClient:
     async def generate_speech(
         self,
         text: str,
-        voice_name: str = "Kore",
+        voice_name: str = "Zephyr",
         _retry_count: int = 0,
     ) -> Optional[dict]:
         if not text:
@@ -355,6 +355,7 @@ class GeminiClient:
         if _retry_count > 2:
             raise RuntimeError("Gemini TTS unavailable after retries")
 
+        voice = voice_name or settings.tts_voice
         key = self._get_next_available_key()
         if not key:
             raise RuntimeError("All API keys are degraded or in cooldown")
@@ -363,14 +364,14 @@ class GeminiClient:
         contents = [
             genai_types.Content(
                 role="user",
-                parts=[genai_types.Part(text=text[:200])],
+                parts=[genai_types.Part(text=text[:500])],
             )
         ]
         config = genai_types.GenerateContentConfig(
             response_modalities=["AUDIO"],
             speech_config=genai_types.SpeechConfig(
                 voice_config=genai_types.VoiceConfig(
-                    prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name=voice_name)
+                    prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name=voice)
                 )
             ),
         )
