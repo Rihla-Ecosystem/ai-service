@@ -54,3 +54,21 @@ async def health_keys():
         "total_keys": len(llm_client.keys),
         "available_keys": sum(1 for k in llm_client.keys if k.is_available()),
     }
+
+
+@router.get("/health/collections")
+async def health_collections():
+    from app.main import vector_store
+
+    if not vector_store:
+        return {"status": "not_initialized", "collections": []}
+
+    try:
+        collections = await vector_store.get_collections_info()
+        return {
+            "status": "ok",
+            "collections": collections,
+            "total_collections": len(collections),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e), "collections": []}

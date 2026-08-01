@@ -108,19 +108,19 @@ async def ingest_all(vector_store: VectorStore, rag_dir: str):
             continue
 
         from qdrant_client.models import PointStruct
+        from app.rag.retriever import get_embeddings_batch
 
+        vectors = await get_embeddings_batch([chunk["text"] for chunk in all_chunks])
         points = []
-        for i, chunk in enumerate(all_chunks):
-            embedding = await get_embedding(chunk["text"])
-            if embedding:
-                points.append(PointStruct(
-                    id=hash(f"{category}_{i}_{chunk['text'][:50]}") % (2**63),
-                    vector=embedding,
-                    payload={
-                        "text": chunk["text"],
-                        **chunk["metadata"],
-                    },
-                ))
+        for i, (chunk, embedding) in enumerate(zip(all_chunks, vectors)):
+            points.append(PointStruct(
+                id=hash(f"{category}_{i}_{chunk['text'][:50]}") % (2**63),
+                vector=embedding,
+                payload={
+                    "text": chunk["text"],
+                    **chunk["metadata"],
+                },
+            ))
 
         if points:
             await vector_store.upsert_points(category, points)

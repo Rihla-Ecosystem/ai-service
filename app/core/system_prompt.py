@@ -72,6 +72,7 @@ def build_system_prompt(persona: str = "tour_guide", context: dict | None = None
         user = context.get("user", {})
         env = context.get("environment", {})
         geo = context.get("geography", {})
+        coords = context.get("coordinates", {})
 
         user_section = ["", "## User Context"]
         if user.get("display_name"):
@@ -93,6 +94,14 @@ def build_system_prompt(persona: str = "tour_guide", context: dict | None = None
 
         if geo:
             parts.extend(["", "## Nearby Places & Geography", str(geo)])
+
+        if coords:
+            parts.extend([
+                "",
+                "## User's Current Coordinates",
+                f"- latitude: {coords.get('lat')}, longitude: {coords.get('lon')}",
+                "- This IS the user's current location. Never claim you don't know where the user is when these coordinates are provided.",
+            ])
 
     parts.extend([
         "",

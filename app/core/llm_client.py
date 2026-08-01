@@ -1,11 +1,37 @@
 import asyncio
+import contextvars
 import structlog
 from enum import Enum
 from typing import AsyncGenerator, List, Optional
 from google import genai
 from google.genai import types as genai_types
 
+from app.config import settings
+
 logger = structlog.get_logger()
+
+GEMINI_MODEL_FALLBACKS = [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash-lite",
+]
+
+_usage_accumulator: contextvars.ContextVar = contextvars.ContextVar(
+    "rihla_usage_accumulator", default=None
+)
+
+
+def begin_usage_tracking():
+    """Start accumulating Gemini token usage for the current request scope."""
+    _usage_accumulator.set([])
+
+
+def consume_usage() -> list:
+    """Return accumulated Gemini usage entries for the current request and reset."""
+    entries = _usage_accumulator.get() or []
+    _usage_accumulator.set(None)
+    return entries
 
 
 class KeyStatus(Enum):
@@ -20,7 +46,10 @@ class GeminiKey:
         self.status = KeyStatus.ACTIVE
         self.fail_count = 0
         self.cooldown_until = 0.0
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options={"timeout": 120000},
+        )
 
     def mark_failed(self, cooldown_seconds: float = 60.0):
         self.fail_count += 1
@@ -65,6 +94,13 @@ class GeminiClient:
                 return key
         return None
 
+    def _model_for_retry(self, retry_count: int) -> str:
+        models = [settings.gemini_model]
+        for m in GEMINI_MODEL_FALLBACKS:
+            if m not in models:
+                models.append(m)
+        return models[min(retry_count, len(models) - 1)]
+
     def _extract_text(self, response) -> str:
         if response is None:
             return ""
@@ -72,14 +108,43 @@ class GeminiClient:
             return response.text
         return str(response)
 
-    async def _stream_to_async(self, sync_gen) -> AsyncGenerator[str, None]:
+    def _extract_usage(self, response) -> dict:
+        """Extract token usage from a Gemini response."""
+        if response is None:
+            return {"model": None, "inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
+        meta = getattr(response, "usage_metadata", None)
+        model = getattr(response, "model", None)
+        input_tokens = getattr(meta, "prompt_token_count", None) or 0
+        output_tokens = getattr(meta, "candidates_token_count", None) or 0
+        total_tokens = getattr(meta, "total_token_count", None) or 0
+        if not total_tokens:
+            total_tokens = int(input_tokens or 0) + int(output_tokens or 0)
+        return {
+            "model": model,
+            "inputTokens": int(input_tokens or 0),
+            "outputTokens": int(output_tokens or 0),
+            "totalTokens": int(total_tokens or 0),
+        }
+
+    def _record_usage(self, response, model: Optional[str] = None) -> None:
+        entries = _usage_accumulator.get()
+        if entries is None:
+            return
+        usage = self._extract_usage(response)
+        if not usage.get("model") and model:
+            usage["model"] = model
+        if usage["totalTokens"] > 0:
+            entries.append(usage)
+
+    async def _stream_to_async(self, sync_gen, model: Optional[str] = None) -> AsyncGenerator[str, None]:
         try:
             for chunk in sync_gen:
                 if hasattr(chunk, "text") and chunk.text is not None:
                     yield chunk.text
+                self._record_usage(chunk, model)
         except Exception as e:
             logger.error("Stream error during iteration", error=str(e))
-            yield ""
+            raise
 
     async def generate(
         self,
@@ -97,7 +162,7 @@ class GeminiClient:
         if not key:
             raise RuntimeError("All API keys are degraded or in cooldown")
 
-        model = "gemini-2.0-flash"
+        model = self._model_for_retry(_retry_count)
         contents = [
             genai_types.Content(
                 role="user",
@@ -116,11 +181,12 @@ class GeminiClient:
                     model=model, contents=contents, config=config
                 )
                 key.mark_success()
-                return self._stream_to_async(sync_gen)
+                return self._stream_to_async(sync_gen, model=model)
             response = key.client.models.generate_content(
                 model=model, contents=contents, config=config
             )
             key.mark_success()
+            self._record_usage(response, model)
             return response
         except Exception as e:
             logger.warning("Gemini API call failed", error=str(e), key_suffix=key.api_key[-4:])
@@ -149,7 +215,7 @@ class GeminiClient:
         if not key:
             raise RuntimeError("All API keys are degraded or in cooldown")
 
-        model = "gemini-2.0-flash"
+        model = self._model_for_retry(_retry_count)
         contents = [
             genai_types.Content(
                 role="user",
@@ -159,7 +225,7 @@ class GeminiClient:
         config = genai_types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=temperature,
-            tools=tools,
+            tools=[genai_types.Tool(function_declarations=tools)],
         )
 
         try:
@@ -167,6 +233,7 @@ class GeminiClient:
                 model=model, contents=contents, config=config
             )
             key.mark_success()
+            self._record_usage(response, model)
             return response
         except Exception as e:
             logger.warning("Gemini tool call failed", error=str(e), key_suffix=key.api_key[-4:])
@@ -194,7 +261,7 @@ class GeminiClient:
         if not key:
             raise RuntimeError("All API keys are degraded or in cooldown")
 
-        model = "gemini-2.0-flash"
+        model = self._model_for_retry(_retry_count)
         contents = [
             genai_types.Content(
                 role="user",
@@ -216,6 +283,7 @@ class GeminiClient:
                 model=model, contents=contents, config=config
             )
             key.mark_success()
+            self._record_usage(response, model)
             return response
         except Exception as e:
             logger.warning("Gemini vision call failed", error=str(e), key_suffix=key.api_key[-4:])
@@ -242,7 +310,7 @@ class GeminiClient:
         if not key:
             raise RuntimeError("All API keys are degraded or in cooldown")
 
-        model = "gemini-2.0-flash"
+        model = self._model_for_retry(_retry_count)
         contents = [
             genai_types.Content(
                 role="user",
@@ -264,6 +332,7 @@ class GeminiClient:
                 model=model, contents=contents, config=config
             )
             key.mark_success()
+            self._record_usage(response, model)
             return response
         except Exception as e:
             logger.warning("Gemini audio call failed", error=str(e), key_suffix=key.api_key[-4:])
@@ -272,6 +341,68 @@ class GeminiClient:
                 system_prompt=system_prompt,
                 audio_bytes=audio_bytes,
                 mime_type=mime_type,
+                _retry_count=_retry_count + 1,
+            )
+
+    async def generate_speech(
+        self,
+        text: str,
+        voice_name: str = "Kore",
+        _retry_count: int = 0,
+    ) -> Optional[dict]:
+        if not text:
+            return None
+        if _retry_count > 2:
+            raise RuntimeError("Gemini TTS unavailable after retries")
+
+        key = self._get_next_available_key()
+        if not key:
+            raise RuntimeError("All API keys are degraded or in cooldown")
+
+        model = "gemini-3.1-flash-tts-preview"
+        contents = [
+            genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=text[:200])],
+            )
+        ]
+        config = genai_types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=genai_types.SpeechConfig(
+                voice_config=genai_types.VoiceConfig(
+                    prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name=voice_name)
+                )
+            ),
+        )
+
+        try:
+            response = key.client.models.generate_content(
+                model=model, contents=contents, config=config
+            )
+            key.mark_success()
+            self._record_usage(response, model)
+            parts = response.candidates[0].content.parts
+            for part in parts:
+                inline = getattr(part, "inline_data", None)
+                if inline is not None and getattr(inline, "data", None):
+                    return {
+                        "audio_bytes": inline.data,
+                        "mime": inline.mime_type or "audio/l16",
+                    }
+            return None
+        except Exception as e:
+            code = getattr(e, "code", None)
+            logger.warning(
+                "Gemini TTS call failed",
+                error=str(e),
+                key_suffix=key.api_key[-4:],
+                code=code,
+            )
+            if code != 503:
+                key.mark_failed(cooldown_seconds=self.cooldown_seconds)
+            return await self.generate_speech(
+                text,
+                voice_name=voice_name,
                 _retry_count=_retry_count + 1,
             )
 
