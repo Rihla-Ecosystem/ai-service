@@ -12,13 +12,13 @@ from qdrant_client.models import (
 logger = structlog.get_logger()
 
 COLLECTION_CONFIG = {
-    "attractions": {"size": 768},
-    "monuments": {"size": 768},
-    "emergency": {"size": 768},
-    "legal": {"size": 768},
-    "currency": {"size": 768},
-    "scams": {"size": 768},
-    "advisories": {"size": 768},
+    "attractions": {"size": 1024},
+    "monuments": {"size": 1024},
+    "emergency": {"size": 1024},
+    "legal": {"size": 1024},
+    "currency": {"size": 1024},
+    "scams": {"size": 1024},
+    "advisories": {"size": 1024},
 }
 
 
@@ -51,6 +51,20 @@ class VectorStore:
         collections = await self.client.get_collections()
         return [c.name for c in collections.collections]
 
+    async def get_collections_info(self) -> List[dict]:
+        """Return each collection with its current point count."""
+        if not self.client:
+            return []
+        collections = await self.client.get_collections()
+        result = []
+        for c in collections.collections:
+            try:
+                count = await self.client.count(collection_name=c.name)
+                result.append({"name": c.name, "count": count.count})
+            except Exception:
+                result.append({"name": c.name, "count": 0})
+        return result
+
     async def upsert_points(
         self,
         collection_name: str,
@@ -73,13 +87,13 @@ class VectorStore:
     ) -> List[ScoredPoint]:
         if not self.client:
             raise RuntimeError("Vector store not initialized")
-        results = await self.client.search(
+        result = await self.client.query_points(
             collection_name=f"rihla_{collection_name}",
-            query_vector=query_vector,
+            query=query_vector,
             limit=top_k,
             query_filter=qdrant_filter,
         )
-        return results
+        return list(result.points)
 
     async def delete_collection(self, collection_name: str):
         if not self.client:

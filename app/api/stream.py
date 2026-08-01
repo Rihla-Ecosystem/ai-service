@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from app.core.system_prompt import build_system_prompt
 from app.core.guardrails import check_input
 from app.core.auth import allow_access
+from app.core.llm_client import begin_usage_tracking, consume_usage
 
 logger = structlog.get_logger()
 
@@ -21,6 +22,8 @@ class StreamRequest(BaseModel):
     user: Optional[Dict[str, Any]] = None
     environment: Optional[Dict[str, Any]] = None
     geography: Optional[Dict[str, Any]] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
 
 
 @router.post("/stream")
@@ -39,6 +42,8 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(allow_access)):
         context["environment"] = req.environment
     if req.geography:
         context["geography"] = req.geography
+    if req.lat is not None and req.lon is not None:
+        context["coordinates"] = {"lat": req.lat, "lon": req.lon}
 
     system_prompt = build_system_prompt(persona=req.persona, context=context)
 
@@ -51,6 +56,7 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(allow_access)):
         return StreamingResponse(no_client(), media_type="text/event-stream")
 
     try:
+        begin_usage_tracking()
         stream = await llm_client.generate(
             system_prompt=system_prompt,
             user_message=req.message,
@@ -66,8 +72,19 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(allow_access)):
                         yield f"data: {json.dumps({'token': chunk})}\n\n"
             except Exception as e:
                 logger.error("Stream iteration error", error=str(e))
-                yield f"data: {json.dumps({'error': 'Stream interrupted'})}\n\n"
-            yield f"data: {json.dumps({'done': True, 'full_response': full_text})}\n\n"
+                yield f"data: {json.dumps({'error': 'AI temporarily unavailable', 'reason': str(e)})}\n\n"
+                return
+            usage_entries = consume_usage()
+            usage = None
+            model = None
+            if usage_entries:
+                usage = {
+                    "inputTokens": sum(e.get("inputTokens", 0) for e in usage_entries),
+                    "outputTokens": sum(e.get("outputTokens", 0) for e in usage_entries),
+                    "totalTokens": sum(e.get("totalTokens", 0) for e in usage_entries),
+                }
+                model = next((e.get("model") for e in usage_entries if e.get("model")), None)
+            yield f"data: {json.dumps({'done': True, 'full_response': full_text, 'usage': usage, 'model': model})}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(generate(), media_type="text/event-stream")

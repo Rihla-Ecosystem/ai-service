@@ -2,7 +2,7 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /build
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir --user --timeout 120 -r requirements.txt
 
 FROM python:3.11-slim AS runtime
 

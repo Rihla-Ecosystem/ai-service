@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from app.agent.supervisor import route_and_respond
 from app.core.auth import allow_access
+from app.core.llm_client import begin_usage_tracking, consume_usage
 
 router = APIRouter()
 
@@ -27,10 +28,29 @@ class ChatResponse(BaseModel):
     persona: Optional[str] = None
     blocked: Optional[bool] = None
     reason: Optional[str] = None
+    usage: Optional[Dict[str, Any]] = None
+    model: Optional[str] = None
+
+
+def _sum_usage(entries: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not entries:
+        return None
+    model = None
+    for e in entries:
+        if e.get("model"):
+            model = e.get("model")
+            break
+    return {
+        "model": model,
+        "inputTokens": sum(e.get("inputTokens", 0) for e in entries),
+        "outputTokens": sum(e.get("outputTokens", 0) for e in entries),
+        "totalTokens": sum(e.get("totalTokens", 0) for e in entries),
+    }
 
 
 @router.post("", response_model=ChatResponse)
 async def chat_endpoint(req: ChatRequest, user: dict = Depends(allow_access)):
+    begin_usage_tracking()
     context = {}
     if req.user:
         context["user"] = req.user
@@ -55,10 +75,16 @@ async def chat_endpoint(req: ChatRequest, user: dict = Depends(allow_access)):
         context=context,
     )
 
+    usage_entries = consume_usage()
+    usage = _sum_usage(usage_entries)
+    model = usage.get("model") if usage else None
+
     return ChatResponse(
         response=result.get("response", ""),
         conversation_id=req.conversation_id,
         persona=result.get("persona"),
         blocked=result.get("blocked", False),
         reason=result.get("reason"),
+        usage=usage,
+        model=model,
     )

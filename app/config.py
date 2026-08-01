@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     # Read as plain string from .env
     gemini_api_keys: str = ""
+    gemini_model: str = "gemini-3.6-flash"
+    jina_api_key: str = ""
 
     jwt_access_secret: str = "change-me-in-production"
     internal_api_key: str = "change-me-in-production"

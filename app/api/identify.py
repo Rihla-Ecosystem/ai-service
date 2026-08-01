@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 from app.core.guardrails import check_output
 from app.core.auth import allow_access
+from app.core.llm_client import begin_usage_tracking, consume_usage
 
 router = APIRouter()
 
@@ -22,6 +23,8 @@ class IdentifyResponse(BaseModel):
     image_url: Optional[str] = None
     nearby_sites: Optional[list] = None
     cached: bool = False
+    usage: Optional[dict] = None
+    model: Optional[str] = None
 
 
 @router.post("", response_model=IdentifyResponse)
@@ -84,6 +87,7 @@ async def identify_landmark(
     mime_type = image.content_type or "image/jpeg"
 
     try:
+        begin_usage_tracking()
         response = await llm_client.generate_with_image(
             system_prompt=system_prompt,
             user_message="Identify this landmark in Egypt.",
@@ -116,7 +120,22 @@ async def identify_landmark(
         if len(_cache) > 100:
             _cache.clear()
 
-        return IdentifyResponse(**result)
+        usage_entries = consume_usage()
+        usage = None
+        model = None
+        if usage_entries:
+            entry = usage_entries[0]
+            usage = {
+                "inputTokens": entry.get("inputTokens", 0),
+                "outputTokens": entry.get("outputTokens", 0),
+                "totalTokens": entry.get("totalTokens", 0),
+            }
+            model = entry.get("model")
+
+        payload = dict(result)
+        payload["usage"] = usage
+        payload["model"] = model
+        return IdentifyResponse(**payload)
 
     except HTTPException:
         raise
