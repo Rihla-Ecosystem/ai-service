@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from app.core.system_prompt import build_system_prompt
 from app.core.guardrails import check_input
 from app.core.auth import allow_access
+from app.core.ratelimit import rate_limit
 from app.core.llm_client import begin_usage_tracking, consume_usage
 
 logger = structlog.get_logger()
@@ -27,7 +28,7 @@ class StreamRequest(BaseModel):
 
 
 @router.post("/stream")
-async def chat_stream(req: StreamRequest, user: dict = Depends(allow_access)):
+async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
     guard_result = check_input(req.message)
     if guard_result.blocked:
         async def blocked_stream():

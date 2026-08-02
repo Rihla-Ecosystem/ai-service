@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 import structlog
 
 from app.config import settings
-from app.api import chat, voice, identify, stream, health
+from app.api import chat, voice, identify, stream, health, itinerary
 from app.rag.vector_store import VectorStore
 from app.core.llm_client import GeminiClient
 
@@ -95,3 +95,4 @@ app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(stream.router, prefix="/chat", tags=["chat"])
 app.include_router(voice.router, prefix="/voice", tags=["voice"])
 app.include_router(identify.router, prefix="/identify", tags=["identify"])
+app.include_router(itinerary.router, prefix="/itinerary", tags=["itinerary"])

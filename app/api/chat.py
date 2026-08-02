@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from app.agent.supervisor import route_and_respond
 from app.core.auth import allow_access
+from app.core.ratelimit import rate_limit
 from app.core.llm_client import begin_usage_tracking, consume_usage
 
 router = APIRouter()
@@ -19,7 +20,7 @@ class ChatRequest(BaseModel):
     environment: Optional[Dict[str, Any]] = None
     geography: Optional[Dict[str, Any]] = None
     safety: Optional[Dict[str, Any]] = None
-    user_journeys: Optional[Dict[str, Any]] = None
+    user_journeys: Optional[Any] = None
 
 
 class ChatResponse(BaseModel):
@@ -49,7 +50,7 @@ def _sum_usage(entries: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 
 @router.post("", response_model=ChatResponse)
-async def chat_endpoint(req: ChatRequest, user: dict = Depends(allow_access)):
+async def chat_endpoint(req: ChatRequest, user: dict = Depends(rate_limit)):
     begin_usage_tracking()
     context = {}
     if req.user:

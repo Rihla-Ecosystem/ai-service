@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 from app.core.guardrails import check_output
 from app.core.auth import allow_access
+from app.core.ratelimit import rate_limit
 from app.core.llm_client import begin_usage_tracking, consume_usage
 
 router = APIRouter()
@@ -33,7 +34,7 @@ async def identify_landmark(
     lat: Optional[float] = Form(None),
     lon: Optional[float] = Form(None),
     radius: int = Form(500),
-    user: dict = Depends(allow_access),
+    user: dict = Depends(rate_limit),
 ):
     image_bytes = await image.read()
     if not image_bytes:

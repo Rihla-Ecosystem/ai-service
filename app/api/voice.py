@@ -15,6 +15,7 @@ from gtts import gTTS
 from app.config import settings
 from app.core.guardrails import check_input, check_output
 from app.core.auth import allow_access
+from app.core.ratelimit import rate_limit
 from app.core.llm_client import begin_usage_tracking, consume_usage
 
 logger = logging.getLogger("app.api.voice")
@@ -144,7 +145,7 @@ async def voice_endpoint(
     lat: Optional[float] = Form(None),
     lon: Optional[float] = Form(None),
     conversation_id: Optional[str] = Form(None),
-    user: dict = Depends(allow_access),
+    user: dict = Depends(rate_limit),
 ):
     audio_bytes = await audio.read()
     if not audio_bytes:
