@@ -1,5 +1,4 @@
 import asyncio
-import contextvars
 import structlog
 from enum import Enum
 from typing import AsyncGenerator, List, Optional
@@ -7,6 +6,23 @@ from google import genai
 from google.genai import types as genai_types
 
 from app.config import settings
+from app.core.gemini_usage import extract_response_model, extract_token_counts
+from app.core.usage import (
+    OP_AUDIO_UNDERSTANDING,
+    OP_IMAGE_ANALYSIS,
+    OP_TEXT_CHAT,
+    OP_TEXT_CHAT_STREAM,
+    OP_TEXT_GENERATION,
+    OP_TEXT_TO_SPEECH,
+    PROVIDER_GOOGLE,
+    USAGE_COMPLETENESS_COMPLETE,
+    USAGE_COMPLETENESS_UNAVAILABLE,
+    USAGE_SOURCE_PROVIDER_RESPONSE,
+    USAGE_SOURCE_STREAM_FINAL,
+    final_stream_usage,
+    make_provider_call,
+    record_provider_call,
+)
 
 logger = structlog.get_logger()
 
@@ -16,22 +32,6 @@ GEMINI_MODEL_FALLBACKS = [
     "gemini-3-flash-preview",
     "gemini-2.5-flash-lite",
 ]
-
-_usage_accumulator: contextvars.ContextVar = contextvars.ContextVar(
-    "rihla_usage_accumulator", default=None
-)
-
-
-def begin_usage_tracking():
-    """Start accumulating Gemini token usage for the current request scope."""
-    _usage_accumulator.set([])
-
-
-def consume_usage() -> list:
-    """Return accumulated Gemini usage entries for the current request and reset."""
-    entries = _usage_accumulator.get() or []
-    _usage_accumulator.set(None)
-    return entries
 
 
 class KeyStatus(Enum):
@@ -108,43 +108,87 @@ class GeminiClient:
             return response.text
         return str(response)
 
-    def _extract_usage(self, response) -> dict:
-        """Extract token usage from a Gemini response."""
-        if response is None:
-            return {"model": None, "inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
-        meta = getattr(response, "usage_metadata", None)
-        model = getattr(response, "model", None)
-        input_tokens = getattr(meta, "prompt_token_count", None) or 0
-        output_tokens = getattr(meta, "candidates_token_count", None) or 0
-        total_tokens = getattr(meta, "total_token_count", None) or 0
-        if not total_tokens:
-            total_tokens = int(input_tokens or 0) + int(output_tokens or 0)
-        return {
-            "model": model,
-            "inputTokens": int(input_tokens or 0),
-            "outputTokens": int(output_tokens or 0),
-            "totalTokens": int(total_tokens or 0),
-        }
+    def _record_provider_call(
+        self,
+        response,
+        requested_model: Optional[str],
+        operation: str,
+        usage_source: str = USAGE_SOURCE_PROVIDER_RESPONSE,
+        accounting_semantics: Optional[str] = None,
+    ) -> None:
+        """Record one ProviderCallUsage entry for a real provider call.
 
-    def _record_usage(self, response, model: Optional[str] = None) -> None:
-        entries = _usage_accumulator.get()
-        if entries is None:
-            return
-        usage = self._extract_usage(response)
-        if not usage.get("model") and model:
-            usage["model"] = model
-        if usage["totalTokens"] > 0:
-            entries.append(usage)
+        The entry always represents the provider call that executed. Token
+        counts are only included when the provider reported them; otherwise the
+        record is emitted with no usage fields and
+        ``usageCompleteness=UNAVAILABLE``. ``providerRequestId`` is left absent
+        because the current Gemini SDK path does not expose a request id.
+        """
+        counts = extract_token_counts(response)
+        actual_model = extract_response_model(response)
+        call = make_provider_call(
+            provider=PROVIDER_GOOGLE,
+            requested_model=requested_model,
+            actual_model=actual_model,
+            operation=operation,
+            provider_call_made=True,
+            usage_source=usage_source,
+            usage_completeness=(
+                USAGE_COMPLETENESS_COMPLETE if counts else USAGE_COMPLETENESS_UNAVAILABLE
+            ),
+            accounting_semantics=accounting_semantics,
+            **counts,
+        )
+        record_provider_call(call)
 
-    async def _stream_to_async(self, sync_gen, model: Optional[str] = None) -> AsyncGenerator[str, None]:
+    def _record_stream_final(
+        self,
+        usage_fields: dict,
+        actual_model: Optional[str],
+        requested_model: Optional[str],
+        operation: str,
+    ) -> None:
+        """Record exactly one ProviderCallUsage entry for a streamed call.
+
+        ``usage_fields`` must already be the final cumulative snapshot (the last
+        non-empty snapshot observed across chunks). This guarantees one entry
+        per streamed provider call and never sums cumulative snapshots.
+        """
+        call = make_provider_call(
+            provider=PROVIDER_GOOGLE,
+            requested_model=requested_model,
+            actual_model=actual_model,
+            operation=operation,
+            provider_call_made=True,
+            usage_source=USAGE_SOURCE_STREAM_FINAL,
+            usage_completeness=(
+                USAGE_COMPLETENESS_COMPLETE if usage_fields else USAGE_COMPLETENESS_UNAVAILABLE
+            ),
+            **usage_fields,
+        )
+        record_provider_call(call)
+
+    async def _stream_to_async(
+        self,
+        sync_gen,
+        requested_model: Optional[str] = None,
+        operation: str = OP_TEXT_CHAT_STREAM,
+    ) -> AsyncGenerator[str, None]:
+        snapshots = []
+        last_model = None
         try:
             for chunk in sync_gen:
                 if hasattr(chunk, "text") and chunk.text is not None:
                     yield chunk.text
-                self._record_usage(chunk, model)
-        except Exception as e:
-            logger.error("Stream error during iteration", error=str(e))
-            raise
+                snapshot = extract_token_counts(chunk)
+                if snapshot:
+                    snapshots.append(snapshot)
+                model = extract_response_model(chunk)
+                if model:
+                    last_model = model
+        finally:
+            last_usage = final_stream_usage(snapshots)
+            self._record_stream_final(last_usage, last_model, requested_model, operation)
 
     async def generate(
         self,
@@ -153,6 +197,7 @@ class GeminiClient:
         temperature: float = 0.7,
         max_output_tokens: int = 4096,
         stream: bool = False,
+        operation: str = OP_TEXT_GENERATION,
         _retry_count: int = 0,
     ):
         if _retry_count > self.MAX_RETRIES:
@@ -181,12 +226,16 @@ class GeminiClient:
                     model=model, contents=contents, config=config
                 )
                 key.mark_success()
-                return self._stream_to_async(sync_gen, model=model)
+                return self._stream_to_async(
+                    sync_gen,
+                    requested_model=model,
+                    operation=OP_TEXT_CHAT_STREAM,
+                )
             response = key.client.models.generate_content(
                 model=model, contents=contents, config=config
             )
             key.mark_success()
-            self._record_usage(response, model)
+            self._record_provider_call(response, requested_model=model, operation=operation)
             return response
         except Exception as e:
             logger.warning("Gemini API call failed", error=str(e), key_suffix=key.api_key[-4:])
@@ -197,6 +246,7 @@ class GeminiClient:
                 temperature=temperature,
                 max_output_tokens=max_output_tokens,
                 stream=stream,
+                operation=operation,
                 _retry_count=_retry_count + 1,
             )
 
@@ -206,6 +256,7 @@ class GeminiClient:
         user_message: str,
         tools: List[dict],
         temperature: float = 0.7,
+        operation: str = OP_TEXT_CHAT,
         _retry_count: int = 0,
     ):
         if _retry_count > self.MAX_RETRIES:
@@ -233,7 +284,7 @@ class GeminiClient:
                 model=model, contents=contents, config=config
             )
             key.mark_success()
-            self._record_usage(response, model)
+            self._record_provider_call(response, requested_model=model, operation=operation)
             return response
         except Exception as e:
             logger.warning("Gemini tool call failed", error=str(e), key_suffix=key.api_key[-4:])
@@ -243,6 +294,7 @@ class GeminiClient:
                 user_message=user_message,
                 tools=tools,
                 temperature=temperature,
+                operation=operation,
                 _retry_count=_retry_count + 1,
             )
 
@@ -252,6 +304,7 @@ class GeminiClient:
         user_message: str,
         image_bytes: bytes,
         mime_type: str = "image/jpeg",
+        operation: str = OP_IMAGE_ANALYSIS,
         _retry_count: int = 0,
     ):
         if _retry_count > self.MAX_RETRIES:
@@ -283,7 +336,7 @@ class GeminiClient:
                 model=model, contents=contents, config=config
             )
             key.mark_success()
-            self._record_usage(response, model)
+            self._record_provider_call(response, requested_model=model, operation=operation)
             return response
         except Exception as e:
             logger.warning("Gemini vision call failed", error=str(e), key_suffix=key.api_key[-4:])
@@ -293,6 +346,7 @@ class GeminiClient:
                 user_message=user_message,
                 image_bytes=image_bytes,
                 mime_type=mime_type,
+                operation=operation,
                 _retry_count=_retry_count + 1,
             )
 
@@ -301,6 +355,7 @@ class GeminiClient:
         system_prompt: str,
         audio_bytes: bytes,
         mime_type: str = "audio/mpeg",
+        operation: str = OP_AUDIO_UNDERSTANDING,
         _retry_count: int = 0,
     ):
         if _retry_count > self.MAX_RETRIES:
@@ -332,7 +387,7 @@ class GeminiClient:
                 model=model, contents=contents, config=config
             )
             key.mark_success()
-            self._record_usage(response, model)
+            self._record_provider_call(response, requested_model=model, operation=operation)
             return response
         except Exception as e:
             logger.warning("Gemini audio call failed", error=str(e), key_suffix=key.api_key[-4:])
@@ -341,6 +396,7 @@ class GeminiClient:
                 system_prompt=system_prompt,
                 audio_bytes=audio_bytes,
                 mime_type=mime_type,
+                operation=operation,
                 _retry_count=_retry_count + 1,
             )
 
@@ -348,6 +404,7 @@ class GeminiClient:
         self,
         text: str,
         voice_name: str = "Zephyr",
+        operation: str = OP_TEXT_TO_SPEECH,
         _retry_count: int = 0,
     ) -> Optional[dict]:
         if not text:
@@ -381,7 +438,7 @@ class GeminiClient:
                 model=model, contents=contents, config=config
             )
             key.mark_success()
-            self._record_usage(response, model)
+            self._record_provider_call(response, requested_model=model, operation=operation)
             parts = response.candidates[0].content.parts
             for part in parts:
                 inline = getattr(part, "inline_data", None)
@@ -404,6 +461,7 @@ class GeminiClient:
             return await self.generate_speech(
                 text,
                 voice_name=voice_name,
+                operation=operation,
                 _retry_count=_retry_count + 1,
             )
 

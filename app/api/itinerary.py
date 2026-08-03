@@ -6,7 +6,7 @@ from app.agent.tools import _recommend_itinerary
 from app.core.auth import allow_access
 from app.core.ratelimit import rate_limit
 from app.core.guardrails import check_input
-from app.core.llm_client import begin_usage_tracking, consume_usage
+from app.core.usage import begin_usage_tracking, consume_usage, derive_legacy_usage
 
 router = APIRouter()
 
@@ -29,6 +29,7 @@ class ItineraryResponse(BaseModel):
     reason: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
     model: Optional[str] = None
+    providerCalls: Optional[List[Dict[str, Any]]] = None
 
 
 @router.post("", response_model=ItineraryResponse)
@@ -54,25 +55,15 @@ async def itinerary_endpoint(req: ItineraryRequest, user: dict = Depends(rate_li
             base_currency=req.base_currency or "",
         )
     finally:
-        usage_entries = consume_usage()
+        provider_calls = consume_usage()
 
-    usage = None
-    model = None
-    if usage_entries:
-        for e in usage_entries:
-            if e.get("model"):
-                model = e.get("model")
-                break
-        usage = {
-            "model": model,
-            "inputTokens": sum(e.get("inputTokens", 0) for e in usage_entries),
-            "outputTokens": sum(e.get("outputTokens", 0) for e in usage_entries),
-            "totalTokens": sum(e.get("totalTokens", 0) for e in usage_entries),
-        }
+    usage = derive_legacy_usage(provider_calls)
+    model = usage.get("model") if usage else None
 
     return ItineraryResponse(
         itinerary=itinerary,
         blocked=False,
         usage=usage,
         model=model,
+        providerCalls=provider_calls,
     )

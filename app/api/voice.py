@@ -16,7 +16,7 @@ from app.config import settings
 from app.core.guardrails import check_input, check_output
 from app.core.auth import allow_access
 from app.core.ratelimit import rate_limit
-from app.core.llm_client import begin_usage_tracking, consume_usage
+from app.core.usage import begin_usage_tracking, consume_usage, derive_legacy_usage
 
 logger = logging.getLogger("app.api.voice")
 
@@ -128,6 +128,7 @@ class VoiceResponse(BaseModel):
     conversation_id: Optional[str] = None
     usage: Optional[dict] = None
     model: Optional[str] = None
+    providerCalls: Optional[list] = None
 
 
 @router.get("/audio")
@@ -188,18 +189,6 @@ async def voice_endpoint(
         if guard_result.requires_regeneration:
             text = "I understand your concern, but let me help you with tourism information about Egypt instead."
 
-        usage_entries = consume_usage()
-        usage = None
-        model = None
-        if usage_entries:
-            entry = usage_entries[0]
-            usage = {
-                "inputTokens": entry.get("inputTokens", 0),
-                "outputTokens": entry.get("outputTokens", 0),
-                "totalTokens": entry.get("totalTokens", 0),
-            }
-            model = entry.get("model")
-
         audio_response = None
         audio_url = None
         if text:
@@ -210,6 +199,10 @@ async def voice_endpoint(
                 audio_url = f"/voice/audio?token={token}"
                 audio_response = f"data:{mime};base64,{base64.b64encode(audio_bytes_resp).decode('utf-8')}"
 
+        provider_calls = consume_usage()
+        usage = derive_legacy_usage(provider_calls)
+        model = usage.get("model") if usage else None
+
         return VoiceResponse(
             text_response=text,
             audio_response=audio_response,
@@ -217,6 +210,7 @@ async def voice_endpoint(
             conversation_id=conversation_id,
             usage=usage,
             model=model,
+            providerCalls=provider_calls,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Voice processing failed: {str(e)}")
