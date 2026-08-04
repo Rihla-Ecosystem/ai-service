@@ -51,6 +51,7 @@ class VectorStore:
         collections = await self.client.get_collections()
         return [c.name for c in collections.collections]
 
+
     async def get_collections_info(self) -> List[dict]:
         """Return each collection with its current point count."""
         if not self.client:
@@ -64,6 +65,23 @@ class VectorStore:
             except Exception:
                 result.append({"name": c.name, "count": 0})
         return result
+
+    async def ensure_collection(self, collection_name: str, size: int = 768):
+        if not self.client:
+            raise RuntimeError("Vector store not initialized")
+        full_name = f"rihla_{collection_name}" if not collection_name.startswith("rihla_") else collection_name
+        existing = await self.client.get_collections()
+        existing_names = {c.name for c in existing.collections}
+        if full_name not in existing_names:
+            await self.client.create_collection(
+                collection_name=full_name,
+                vectors_config=VectorParams(
+                    size=size,
+                    distance=Distance.COSINE,
+                ),
+            )
+            logger.info("Created Qdrant collection", collection=full_name)
+
 
     async def upsert_points(
         self,

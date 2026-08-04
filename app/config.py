@@ -37,12 +37,22 @@ class Settings(BaseSettings):
     max_tool_calls_per_turn: int = 5
     max_tool_timeout: int = 10
 
+    max_upload_bytes: int = 10 * 1024 * 1024  # 10 MB
+
+    # Comma-separated list of allowed origins. Use "*" only for local development.
+    cors_origins: str = "http://localhost:3001,http://localhost:3000"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
+
+    @computed_field
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()] or ["*"]
 
     @computed_field
     @property

@@ -1,11 +1,16 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 
 from app.agent.supervisor import route_and_respond
 from app.core.auth import allow_access
+
 from app.core.ratelimit import rate_limit
 from app.core.llm_client import begin_usage_tracking, consume_usage
+
+from app.core.rate_limit import enforce_rate_limit
+from app.monitoring import metrics
+
 
 router = APIRouter()
 
@@ -50,8 +55,10 @@ def _sum_usage(entries: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 
 @router.post("", response_model=ChatResponse)
+
 async def chat_endpoint(req: ChatRequest, user: dict = Depends(rate_limit)):
     begin_usage_tracking()
+
     context = {}
     if req.user:
         context["user"] = req.user
@@ -70,15 +77,20 @@ async def chat_endpoint(req: ChatRequest, user: dict = Depends(rate_limit)):
         context["geography"]["lat"] = req.lat
         context["geography"]["lon"] = req.lon
 
+    metrics.llm_requests_total.labels(endpoint="chat", status="started").inc()
+
     result = await route_and_respond(
         message=req.message,
         persona=req.persona,
         context=context,
     )
 
+
     usage_entries = consume_usage()
     usage = _sum_usage(usage_entries)
     model = usage.get("model") if usage else None
+    metrics.llm_requests_total.labels(endpoint="chat", status="ok").inc()
+
 
     return ChatResponse(
         response=result.get("response", ""),

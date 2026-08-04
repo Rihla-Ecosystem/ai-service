@@ -1,4 +1,5 @@
 import base64
+
 import logging
 import re
 import secrets
@@ -19,6 +20,7 @@ from app.core.ratelimit import rate_limit
 from app.core.llm_client import begin_usage_tracking, consume_usage
 
 logger = logging.getLogger("app.api.voice")
+
 
 router = APIRouter()
 
@@ -141,20 +143,28 @@ async def voice_audio(token: str = Query(...)):
 
 @router.post("", response_model=VoiceResponse)
 async def voice_endpoint(
+    request: Request,
     audio: UploadFile = File(...),
     lat: Optional[float] = Form(None),
     lon: Optional[float] = Form(None),
     conversation_id: Optional[str] = Form(None),
     user: dict = Depends(rate_limit),
 ):
+    enforce_rate_limit(request, "voice")
+
     audio_bytes = await audio.read()
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="No audio data received")
+
+    if len(audio_bytes) > settings.max_upload_bytes:
+        raise HTTPException(status_code=413, detail="Audio file exceeds maximum allowed size")
 
     from app.main import llm_client
 
     if not llm_client:
         raise HTTPException(status_code=503, detail="AI service not initialized")
+
+    metrics.llm_requests_total.labels(endpoint="voice", status="started").inc()
 
     system_prompt = (
         "You are Rihla, a helpful Egyptian tour assistant. "
@@ -179,6 +189,8 @@ async def voice_endpoint(
             audio_bytes=audio_bytes,
             mime_type=mime_type,
         )
+
+        metrics.llm_requests_total.labels(endpoint="voice", status="ok").inc()
 
         text = ""
         if response is not None and hasattr(response, "text") and response.text is not None:

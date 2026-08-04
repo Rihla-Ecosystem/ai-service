@@ -6,9 +6,13 @@ from fastapi.responses import JSONResponse
 import structlog
 
 from app.config import settings
-from app.api import chat, voice, identify, stream, health, itinerary
+
+from app.api import chat, voice, identify, stream, health, monitoring, ingest, admin_assistant
+
 from app.rag.vector_store import VectorStore
 from app.core.llm_client import GeminiClient
+from app.monitoring.instrument import HttpMetricsMiddleware
+from app.monitoring import metrics
 
 logger = structlog.get_logger()
 
@@ -52,6 +56,7 @@ async def lifespan(app: FastAPI):
 
     llm_client = GeminiClient(api_keys=settings.gemini_key_list)
     logger.info("Gemini client initialized", key_count=len(settings.gemini_key_list))
+    metrics.active_api_keys.set(len(settings.gemini_key_list))
 
     vector_store = VectorStore(
         host=settings.qdrant_host,
@@ -77,11 +82,13 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(HttpMetricsMiddleware)
 
 
 @app.exception_handler(Exception)
@@ -91,8 +98,14 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(health.router, tags=["health"])
+app.include_router(monitoring.router, tags=["monitoring"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(stream.router, prefix="/chat", tags=["chat"])
 app.include_router(voice.router, prefix="/voice", tags=["voice"])
 app.include_router(identify.router, prefix="/identify", tags=["identify"])
+
 app.include_router(itinerary.router, prefix="/itinerary", tags=["itinerary"])
+
+app.include_router(ingest.router, prefix="/ingest", tags=["ingest"])
+app.include_router(admin_assistant.router, prefix="/admin", tags=["admin"])
+
