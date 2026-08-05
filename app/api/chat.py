@@ -5,7 +5,11 @@ from typing import Any, Dict, List, Optional
 from app.agent.supervisor import route_and_respond
 from app.core.auth import allow_access
 from app.core.ratelimit import rate_limit
-from app.core.usage import begin_usage_tracking, consume_usage, derive_legacy_usage
+from app.core.usage import (
+    begin_usage_tracking,
+    consume_usage_and_attempts,
+    derive_legacy_usage,
+)
 
 router = APIRouter()
 
@@ -32,6 +36,7 @@ class ChatResponse(BaseModel):
     usage: Optional[Dict[str, Any]] = None
     model: Optional[str] = None
     providerCalls: Optional[List[Dict[str, Any]]] = None
+    providerAttempts: Optional[List[Dict[str, Any]]] = None
 
 
 @router.post("", response_model=ChatResponse)
@@ -61,7 +66,7 @@ async def chat_endpoint(req: ChatRequest, user: dict = Depends(rate_limit)):
         context=context,
     )
 
-    provider_calls = consume_usage()
+    provider_calls, provider_attempts = consume_usage_and_attempts()
     usage = derive_legacy_usage(provider_calls)
     model = usage.get("model") if usage else None
 
@@ -74,4 +79,5 @@ async def chat_endpoint(req: ChatRequest, user: dict = Depends(rate_limit)):
         usage=usage,
         model=model,
         providerCalls=provider_calls,
+        providerAttempts=provider_attempts,
     )

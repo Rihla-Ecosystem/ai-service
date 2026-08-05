@@ -17,8 +17,14 @@ def _is_non_negative_int(value: Any) -> bool:
 
 
 def extract_response_model(response: Any) -> Optional[str]:
-    """Return the actual model used by the provider response, or None."""
-    model = getattr(response, "model", None)
+    """Return the actual model used by the provider response, or None.
+
+    Reads the pinned google-genai SDK field ``model_version`` (the SDK exposes
+    ``GenerateContentResponse.model_version``, not ``model``). ``actualModel``
+    is never fabricated from ``requestedModel``; when ``model_version`` is
+    absent, null, empty, or invalid, the field stays absent.
+    """
+    model = getattr(response, "model_version", None)
     if isinstance(model, str) and model:
         return model
     return None

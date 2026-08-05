@@ -7,7 +7,11 @@ from typing import Any, Dict, Optional
 from app.core.guardrails import check_output
 from app.core.auth import allow_access
 from app.core.ratelimit import rate_limit
-from app.core.usage import begin_usage_tracking, consume_usage, derive_legacy_usage
+from app.core.usage import (
+    begin_usage_tracking,
+    consume_usage_and_attempts,
+    derive_legacy_usage,
+)
 
 router = APIRouter()
 
@@ -27,6 +31,7 @@ class IdentifyResponse(BaseModel):
     usage: Optional[dict] = None
     model: Optional[str] = None
     providerCalls: Optional[list] = None
+    providerAttempts: Optional[list] = None
 
 
 @router.post("", response_model=IdentifyResponse)
@@ -45,8 +50,13 @@ async def identify_landmark(
     cache_key = f"{img_hash}_{lat}_{lon}"
     if cache_key in _cache:
         cached = _cache[cache_key]
-        cached["cached"] = True
-        return IdentifyResponse(**cached)
+        payload = dict(cached)
+        payload["cached"] = True
+        payload["usage"] = None
+        payload["model"] = None
+        payload["providerCalls"] = []
+        payload["providerAttempts"] = []
+        return IdentifyResponse(**payload)
 
     from app.main import llm_client, vector_store
 
@@ -130,7 +140,7 @@ async def identify_landmark(
         if len(_cache) > 100:
             _cache.clear()
 
-        provider_calls = consume_usage()
+        provider_calls, provider_attempts = consume_usage_and_attempts()
         usage = derive_legacy_usage(provider_calls)
         model = usage.get("model") if usage else None
 
@@ -138,6 +148,7 @@ async def identify_landmark(
         payload["usage"] = usage
         payload["model"] = model
         payload["providerCalls"] = provider_calls
+        payload["providerAttempts"] = provider_attempts
         return IdentifyResponse(**payload)
 
     except HTTPException:

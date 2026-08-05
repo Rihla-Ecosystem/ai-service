@@ -16,7 +16,11 @@ from app.config import settings
 from app.core.guardrails import check_input, check_output
 from app.core.auth import allow_access
 from app.core.ratelimit import rate_limit
-from app.core.usage import begin_usage_tracking, consume_usage, derive_legacy_usage
+from app.core.usage import (
+    begin_usage_tracking,
+    consume_usage_and_attempts,
+    derive_legacy_usage,
+)
 
 logger = logging.getLogger("app.api.voice")
 
@@ -109,7 +113,7 @@ async def synthesize_speech(text: str, llm_client) -> Optional[Tuple[bytes, str]
                 return wav, "audio/wav"
             return audio, mime
     except Exception as e:
-        logger.warning("Gemini TTS failed, falling back to gTTS", error=str(e))
+        logger.warning("Gemini TTS failed, falling back to gTTS: %s", str(e))
     return gtts_audio_bytes(text)
 
 
@@ -129,6 +133,7 @@ class VoiceResponse(BaseModel):
     usage: Optional[dict] = None
     model: Optional[str] = None
     providerCalls: Optional[list] = None
+    providerAttempts: Optional[list] = None
 
 
 @router.get("/audio")
@@ -199,7 +204,7 @@ async def voice_endpoint(
                 audio_url = f"/voice/audio?token={token}"
                 audio_response = f"data:{mime};base64,{base64.b64encode(audio_bytes_resp).decode('utf-8')}"
 
-        provider_calls = consume_usage()
+        provider_calls, provider_attempts = consume_usage_and_attempts()
         usage = derive_legacy_usage(provider_calls)
         model = usage.get("model") if usage else None
 
@@ -211,6 +216,7 @@ async def voice_endpoint(
             usage=usage,
             model=model,
             providerCalls=provider_calls,
+            providerAttempts=provider_attempts,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Voice processing failed: {str(e)}")

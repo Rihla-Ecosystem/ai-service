@@ -9,7 +9,11 @@ from app.core.system_prompt import build_system_prompt
 from app.core.guardrails import check_input
 from app.core.auth import allow_access
 from app.core.ratelimit import rate_limit
-from app.core.usage import begin_usage_tracking, consume_usage, derive_legacy_usage
+from app.core.usage import (
+    begin_usage_tracking,
+    consume_usage_and_attempts,
+    derive_legacy_usage,
+)
 
 logger = structlog.get_logger()
 
@@ -74,18 +78,18 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
                         yield f"data: {json.dumps({'token': chunk})}\n\n"
             except Exception as e:
                 logger.error("Stream iteration error", error=str(e))
-                provider_calls = consume_usage()
+                provider_calls, provider_attempts = consume_usage_and_attempts()
                 consumed = True
                 usage = derive_legacy_usage(provider_calls)
                 model = usage.get("model") if usage else None
-                yield f"data: {json.dumps({'error': 'AI temporarily unavailable', 'reason': str(e), 'usage': usage, 'model': model, 'providerCalls': provider_calls})}\n\n"
+                yield f"data: {json.dumps({'error': 'AI temporarily unavailable', 'reason': str(e), 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
                 yield "data: [DONE]\n\n"
                 return
             if not consumed:
-                provider_calls = consume_usage()
+                provider_calls, provider_attempts = consume_usage_and_attempts()
                 usage = derive_legacy_usage(provider_calls)
                 model = usage.get("model") if usage else None
-                yield f"data: {json.dumps({'done': True, 'full_response': full_text, 'usage': usage, 'model': model, 'providerCalls': provider_calls})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'full_response': full_text, 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
                 yield "data: [DONE]\n\n"
 
         return StreamingResponse(generate(), media_type="text/event-stream")

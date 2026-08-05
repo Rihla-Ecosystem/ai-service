@@ -18,10 +18,10 @@ class _UsageMeta:
 
 
 class _Chunk:
-    def __init__(self, text=None, meta=None, model=None):
+    def __init__(self, text=None, meta=None, model_version=None):
         self.text = text
         self.usage_metadata = meta
-        self.model = model
+        self.model_version = model_version
 
 
 def _make_client(monkeypatch):
@@ -55,17 +55,19 @@ class TestGenerateStreamRecordsSingleEntry:
         client, fake = _make_client(monkeypatch)
         fake.models._chunks = [
             _Chunk(
-                text="Hello", meta=_UsageMeta(100, 10, 110), model="gemini-3.6-flash"
+                text="Hello",
+                meta=_UsageMeta(100, 10, 110),
+                model_version="gemini-3.6-flash",
             ),
             _Chunk(
                 text="Hello world",
                 meta=_UsageMeta(100, 25, 125),
-                model="gemini-3.6-flash",
+                model_version="gemini-3.6-flash",
             ),
             _Chunk(
                 text="Hello world!",
                 meta=_UsageMeta(100, 40, 140),
-                model="gemini-3.6-flash",
+                model_version="gemini-3.6-flash",
             ),
         ]
         begin_usage_tracking()
@@ -102,7 +104,7 @@ class TestNonStreamRecordsSingleEntry:
 
         class _Resp:
             def __init__(self):
-                self.model = "gemini-3.6-flash"
+                self.model_version = "gemini-3.6-flash"
                 self.usage_metadata = _UsageMeta(100, 40, 140)
 
         fake.models._last_response = _Resp()
@@ -147,7 +149,7 @@ class TestMultipleCallsGetDistinctIds:
         client, fake = _make_client(monkeypatch)
 
         class _Resp:
-            model = "gemini-3.6-flash"
+            model_version = "gemini-3.6-flash"
 
         fake.models._last_response = _Resp()
 

@@ -59,10 +59,10 @@ class TestPartialStreamFailure:
                 self.total_token_count = total
 
         class _Chunk:
-            def __init__(self, text, meta=None, model=None):
+            def __init__(self, text, meta=None, model_version=None):
                 self.text = text
                 self.usage_metadata = meta
-                self.model = model
+                self.model_version = model_version
 
         client = GeminiClient(api_keys=["dummy-key"])
         key = client.keys[0]
