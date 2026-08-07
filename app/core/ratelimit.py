@@ -11,19 +11,11 @@ _requests: dict[str, deque] = {}
 
 WINDOW_SECONDS = 60
 
+_INTERNAL_GATEWAY_KEY = "internal-gateway"
 
-def rate_limit(user: dict = Depends(allow_access)) -> dict:
-    """Per-user sliding-window rate limiter. Admins are exempt."""
-    if user.get("role") == "admin":
-        return user
 
-    limit = settings.rate_limit_per_user
-    if limit <= 0:
-        return user
-
-    key = str(user.get("sub", "anonymous"))
+def _enforce(key: str, limit: int) -> None:
     now = time.monotonic()
-
     with _log:
         dq = _requests.setdefault(key, deque())
         while dq and dq[0] <= now - WINDOW_SECONDS:
@@ -37,4 +29,23 @@ def rate_limit(user: dict = Depends(allow_access)) -> dict:
             )
         dq.append(now)
 
+
+def rate_limit(user: dict = Depends(allow_access)) -> dict:
+    """Per-user sliding-window rate limiter.
+
+    Only genuine admin JWTs are exempt. Internal-key callers share a single
+    high-but-bounded bucket so a leaked key cannot trigger unlimited traffic.
+    """
+    if user.get("role") == "admin" and user.get("source") != "internal":
+        return user
+
+    limit = settings.rate_limit_per_user
+    if limit <= 0:
+        return user
+
+    if user.get("sub") == _INTERNAL_GATEWAY_KEY:
+        _enforce(_INTERNAL_GATEWAY_KEY, settings.rate_limit_internal)
+        return user
+
+    _enforce(str(user.get("sub", "anonymous")), limit)
     return user

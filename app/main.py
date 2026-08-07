@@ -7,7 +7,7 @@ import structlog
 
 from app.config import settings
 
-from app.api import chat, voice, identify, stream, health, monitoring, ingest, admin_assistant
+from app.api import chat, voice, identify, stream, health, monitoring, ingest, admin_assistant, itinerary
 
 from app.rag.vector_store import VectorStore
 from app.core.llm_client import GeminiClient

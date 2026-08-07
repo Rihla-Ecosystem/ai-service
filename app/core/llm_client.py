@@ -17,6 +17,25 @@ GEMINI_MODEL_FALLBACKS = [
     "gemini-2.5-flash-lite",
 ]
 
+
+def safety_settings() -> list:
+    """Standard harmful-content blocking for every Gemini generation call."""
+    categories = [
+        genai_types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+        genai_types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+        genai_types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+        genai_types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+        genai_types.HarmCategory.HARM_CATEGORY_CIVIC_INTEGRITY,
+        genai_types.HarmCategory.HARM_CATEGORY_JAILBREAK,
+    ]
+    return [
+        genai_types.SafetySetting(
+            category=c,
+            threshold=genai_types.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        )
+        for c in categories
+    ]
+
 _usage_accumulator: contextvars.ContextVar = contextvars.ContextVar(
     "rihla_usage_accumulator", default=None
 )
@@ -75,7 +94,7 @@ class GeminiKey:
 
 
 class GeminiClient:
-    MAX_RETRIES = 10
+    MAX_RETRIES = 3
 
     def __init__(self, api_keys: List[str], cooldown_seconds: float = 60.0):
         self.cooldown_seconds = cooldown_seconds
@@ -173,6 +192,7 @@ class GeminiClient:
             system_instruction=system_prompt,
             temperature=temperature,
             max_output_tokens=max_output_tokens,
+            safety_settings=safety_settings(),
         )
 
         try:
@@ -226,6 +246,7 @@ class GeminiClient:
             system_instruction=system_prompt,
             temperature=temperature,
             tools=[genai_types.Tool(function_declarations=tools)],
+            safety_settings=safety_settings(),
         )
 
         try:
@@ -276,6 +297,7 @@ class GeminiClient:
         config = genai_types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=0.3,
+            safety_settings=safety_settings(),
         )
 
         try:
@@ -301,6 +323,7 @@ class GeminiClient:
         system_prompt: str,
         audio_bytes: bytes,
         mime_type: str = "audio/mpeg",
+        extra_user_context: str = "",
         _retry_count: int = 0,
     ):
         if _retry_count > self.MAX_RETRIES:
@@ -311,6 +334,9 @@ class GeminiClient:
             raise RuntimeError("All API keys are degraded or in cooldown")
 
         model = self._model_for_retry(_retry_count)
+        user_text = "Process this audio and respond appropriately."
+        if extra_user_context:
+            user_text += "\n" + extra_user_context
         contents = [
             genai_types.Content(
                 role="user",
@@ -318,13 +344,14 @@ class GeminiClient:
                     genai_types.Part(
                         inline_data=genai_types.Blob(mime_type=mime_type, data=audio_bytes)
                     ),
-                    genai_types.Part(text="Process this audio and respond appropriately."),
+                    genai_types.Part(text=user_text),
                 ],
             )
         ]
         config = genai_types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=0.5,
+            safety_settings=safety_settings(),
         )
 
         try:
@@ -341,6 +368,7 @@ class GeminiClient:
                 system_prompt=system_prompt,
                 audio_bytes=audio_bytes,
                 mime_type=mime_type,
+                extra_user_context=extra_user_context,
                 _retry_count=_retry_count + 1,
             )
 

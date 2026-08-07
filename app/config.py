@@ -1,6 +1,6 @@
 from typing import List
 
-from pydantic import computed_field
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     rag_data_dir: str = "data/rag"
 
     rate_limit_per_user: int = 30
+    rate_limit_internal: int = 600
     max_tool_calls_per_turn: int = 5
     max_tool_timeout: int = 10
 
@@ -65,6 +66,17 @@ class Settings(BaseSettings):
             for key in self.gemini_api_keys.split(",")
             if key.strip()
         ]
+
+    @model_validator(mode="after")
+    def fail_fast_on_weak_secrets(self) -> "Settings":
+        if self.environment == "production":
+            weak = ("change-me-in-production", "secret", "changeme", "")
+            if self.jwt_access_secret in weak or self.internal_api_key in weak:
+                raise ValueError(
+                    "Production requires strong JWT_ACCESS_SECRET and "
+                    "INTERNAL_API_KEY (not placeholder values)."
+                )
+        return self
 
 
 settings = Settings()

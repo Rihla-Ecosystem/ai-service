@@ -1,15 +1,33 @@
 import json
 import os
+import structlog
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Depends, Query
 from pydantic import BaseModel
 
 from app.core.auth import allow_access
+from app.core.guardrails import check_input
 from app.rag.chunking import chunk_text, chunk_json_array, chunk_json_object
 from app.rag.retriever import get_embedding
+from app.config import settings
+
+logger = structlog.get_logger()
 
 router = APIRouter()
+
+# RAG collections that are safe to write via /ingest. Anything else is rejected
+# so a key holder cannot create/poison arbitrary collections.
+ALLOWED_COLLECTIONS = {
+    "attractions",
+    "scams",
+    "legal",
+    "emergency",
+    "currency",
+    "advisories",
+    "general",
+    "uploaded",
+}
 
 
 class IngestResponse(BaseModel):
@@ -93,6 +111,9 @@ async def ingest_file(
     if not file_bytes:
         raise HTTPException(status_code=400, detail="No file data received")
 
+    if len(file_bytes) > settings.max_upload_bytes:
+        raise HTTPException(status_code=413, detail="File exceeds maximum allowed size")
+
     source_file = file.filename or "unknown"
     file_type = _detect_file_type(source_file, file_bytes)
 
@@ -114,6 +135,28 @@ async def ingest_file(
     collection_name = collection or category
     if collection_name.startswith("rihla_"):
         collection_name = collection_name[len("rihla_"):]
+
+    if collection_name not in ALLOWED_COLLECTIONS:
+        logger.warning("Ingest rejected: collection not allowed", collection=collection_name)
+        raise HTTPException(status_code=403, detail=f"Collection '{collection_name}' is not writable via ingest")
+
+    # RAG data poisoning guard: drop chunks that try to inject instructions.
+    clean_chunks = []
+    for chunk in chunks:
+        text = chunk.get("text", "")
+        guard_result = check_input(text)
+        if guard_result.blocked:
+            logger.warning(
+                "Ingest chunk blocked by guardrails",
+                collection=collection_name,
+                reason=guard_result.reason,
+            )
+            continue
+        clean_chunks.append(chunk)
+
+    if not clean_chunks:
+        raise HTTPException(status_code=400, detail="All chunks were rejected by content guardrails")
+    chunks = clean_chunks
 
     points = []
     for i, chunk in enumerate(chunks):
@@ -204,7 +247,8 @@ async def get_points(
             with_vectors=False,
         )
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Collection not found: {e}")
+        logger.warning("Collection scroll failed", collection=full_name, error=str(e))
+        raise HTTPException(status_code=404, detail="Collection not found")
 
     points = []
     for point in result[0]:
@@ -228,12 +272,16 @@ async def delete_collection(
     if not vector_store or not vector_store.client:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
 
+    if user.get("role") != "admin" or user.get("source") == "internal":
+        raise HTTPException(status_code=403, detail="Admin privileges required for deletion")
+
     full_name = f"rihla_{collection_name}" if not collection_name.startswith("rihla_") else collection_name
 
     try:
         await vector_store.client.delete_collection(collection_name=full_name)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Collection not found: {e}")
+        logger.warning("Collection delete failed", collection=full_name, error=str(e))
+        raise HTTPException(status_code=404, detail="Collection not found")
 
     return DeleteResponse(collection=full_name, deleted=True)
 
@@ -249,6 +297,9 @@ async def delete_point(
     if not vector_store or not vector_store.client:
         raise HTTPException(status_code=503, detail="Vector store not initialized")
 
+    if user.get("role") != "admin" or user.get("source") == "internal":
+        raise HTTPException(status_code=403, detail="Admin privileges required for deletion")
+
     full_name = f"rihla_{collection_name}" if not collection_name.startswith("rihla_") else collection_name
 
     try:
@@ -257,6 +308,7 @@ async def delete_point(
             points_selector=[point_id],
         )
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Point not found: {e}")
+        logger.warning("Point delete failed", collection=full_name, error=str(e))
+        raise HTTPException(status_code=404, detail="Point not found")
 
     return DeleteResponse(collection=full_name, deleted=True)

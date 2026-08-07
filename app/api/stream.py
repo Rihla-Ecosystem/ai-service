@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Any, Dict, Optional
 
-from app.core.system_prompt import build_system_prompt
+from app.core.system_prompt import build_system_prompt, build_user_context
 from app.core.guardrails import check_input
 from app.core.auth import allow_access
 from app.core.ratelimit import rate_limit
@@ -47,6 +47,10 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
         context["coordinates"] = {"lat": req.lat, "lon": req.lon}
 
     system_prompt = build_system_prompt(persona=req.persona, context=context)
+    user_turn = req.message
+    user_context_data = build_user_context(context)
+    if user_context_data:
+        user_turn = f"{req.message}\n\n{user_context_data}"
 
     from app.main import llm_client
 
@@ -60,7 +64,7 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
         begin_usage_tracking()
         stream = await llm_client.generate(
             system_prompt=system_prompt,
-            user_message=req.message,
+            user_message=user_turn,
             stream=True,
         )
 
@@ -73,7 +77,7 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
                         yield f"data: {json.dumps({'token': chunk})}\n\n"
             except Exception as e:
                 logger.error("Stream iteration error", error=str(e))
-                yield f"data: {json.dumps({'error': 'AI temporarily unavailable', 'reason': str(e)})}\n\n"
+                yield f"data: {json.dumps({'error': 'AI temporarily unavailable'})}\n\n"
                 return
             usage_entries = consume_usage()
             usage = None

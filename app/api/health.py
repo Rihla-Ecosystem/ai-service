@@ -1,11 +1,16 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+import structlog
 from app.config import settings
+from app.core.auth import allow_access
+
+logger = structlog.get_logger()
 
 router = APIRouter()
 
 
 @router.get("/health")
 async def health():
+    """Liveness: no internals exposed. Safe to be public for load balancers."""
     return {
         "status": "ok",
         "service": settings.project_name,
@@ -14,7 +19,7 @@ async def health():
 
 
 @router.get("/readyz")
-async def readyz():
+async def readyz(user: dict = Depends(allow_access)):
     from app.main import llm_client, vector_store
 
     status = "ok"
@@ -33,7 +38,8 @@ async def readyz():
             collections = await vector_store.list_collections()
             checks["vector_store"] = {"status": "ok", "collections": collections}
         except Exception as e:
-            checks["vector_store"] = {"status": "error", "message": str(e)}
+            logger.warning("Readyz vector store check failed", error=str(e))
+            checks["vector_store"] = {"status": "error", "message": "vector store unavailable"}
             status = "degraded"
     else:
         checks["vector_store"] = {"status": "not_initialized"}
@@ -43,7 +49,7 @@ async def readyz():
 
 
 @router.get("/health/keys")
-async def health_keys():
+async def health_keys(user: dict = Depends(allow_access)):
     from app.main import llm_client
 
     if not llm_client:
@@ -57,7 +63,7 @@ async def health_keys():
 
 
 @router.get("/health/collections")
-async def health_collections():
+async def health_collections(user: dict = Depends(allow_access)):
     from app.main import vector_store
 
     if not vector_store:
@@ -71,4 +77,5 @@ async def health_collections():
             "total_collections": len(collections),
         }
     except Exception as e:
-        return {"status": "error", "message": str(e), "collections": []}
+        logger.warning("Health collections check failed", error=str(e))
+        return {"status": "error", "collections": []}
