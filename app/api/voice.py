@@ -7,7 +7,7 @@ import struct
 from io import BytesIO
 from typing import Dict, Optional, Tuple
 
-from fastapi import APIRouter, File, Form, UploadFile, HTTPException, Depends, Query, Request
+from fastapi import Request, APIRouter, File, Form, UploadFile, HTTPException, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -18,7 +18,12 @@ from app.core.guardrails import check_input, check_output
 from app.core.auth import allow_access
 from app.core.ratelimit import rate_limit
 from app.core.rate_limit import enforce_rate_limit
-from app.core.llm_client import begin_usage_tracking, consume_usage
+from app.monitoring import metrics
+from app.core.usage import (
+    begin_usage_tracking,
+    consume_usage_and_attempts,
+    derive_legacy_usage,
+)
 
 logger = logging.getLogger("app.api.voice")
 
@@ -112,7 +117,7 @@ async def synthesize_speech(text: str, llm_client) -> Optional[Tuple[bytes, str]
                 return wav, "audio/wav"
             return audio, mime
     except Exception as e:
-        logger.warning("Gemini TTS failed, falling back to gTTS", error=str(e))
+        logger.warning("Gemini TTS failed, falling back to gTTS: %s", str(e))
     return gtts_audio_bytes(text)
 
 
@@ -131,6 +136,8 @@ class VoiceResponse(BaseModel):
     conversation_id: Optional[str] = None
     usage: Optional[dict] = None
     model: Optional[str] = None
+    providerCalls: Optional[list] = None
+    providerAttempts: Optional[list] = None
 
 
 @router.get("/audio")
@@ -205,18 +212,6 @@ async def voice_endpoint(
         if guard_result.requires_regeneration:
             text = "I understand your concern, but let me help you with tourism information about Egypt instead."
 
-        usage_entries = consume_usage()
-        usage = None
-        model = None
-        if usage_entries:
-            entry = usage_entries[0]
-            usage = {
-                "inputTokens": entry.get("inputTokens", 0),
-                "outputTokens": entry.get("outputTokens", 0),
-                "totalTokens": entry.get("totalTokens", 0),
-            }
-            model = entry.get("model")
-
         audio_response = None
         audio_url = None
         if text:
@@ -227,6 +222,10 @@ async def voice_endpoint(
                 audio_url = f"/voice/audio?token={token}"
                 audio_response = f"data:{mime};base64,{base64.b64encode(audio_bytes_resp).decode('utf-8')}"
 
+        provider_calls, provider_attempts = consume_usage_and_attempts()
+        usage = derive_legacy_usage(provider_calls)
+        model = usage.get("model") if usage else None
+
         return VoiceResponse(
             text_response=text,
             audio_response=audio_response,
@@ -234,6 +233,8 @@ async def voice_endpoint(
             conversation_id=conversation_id,
             usage=usage,
             model=model,
+            providerCalls=provider_calls,
+            providerAttempts=provider_attempts,
         )
     except Exception as e:
         logger.error("Voice processing failed", error=str(e))
