@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import os
 import structlog
 from enum import Enum
 from typing import AsyncGenerator, List, Optional
@@ -96,6 +97,17 @@ class GeminiClient:
         self.cooldown_seconds = cooldown_seconds
         self.keys = [GeminiKey(k) for k in api_keys]
         self._round_robin_index = 0
+        # Process-env override (default keeps historical behavior).
+        env_max_retries = os.environ.get("GEMINI_MAX_RETRIES")
+        if env_max_retries is not None:
+            try:
+                parsed = int(env_max_retries)
+                self.MAX_RETRIES = max(0, parsed)
+            except ValueError:
+                logger.warning(
+                    "GEMINI_MAX_RETRIES is not an integer; ignoring override",
+                    value=env_max_retries,
+                )
         if not api_keys:
             logger.error("GeminiClient initialized with NO API keys — every request will fail")
         else:
@@ -654,7 +666,7 @@ class GeminiClient:
     ) -> Optional[dict]:
         if not text:
             return None
-        if _retry_count > 2:
+        if _retry_count > self.MAX_RETRIES:
             raise RuntimeError("Gemini TTS unavailable after retries")
 
         voice = voice_name or settings.tts_voice
