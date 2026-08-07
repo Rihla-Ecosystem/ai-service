@@ -7,7 +7,18 @@ import structlog
 
 from app.config import settings
 
-from app.api import chat, voice, identify, stream, health, monitoring, ingest, admin_assistant, itinerary
+from app.api import (
+    admin_assistant,
+    chat,
+    context,
+    health,
+    identify,
+    ingest,
+    itinerary,
+    monitoring,
+    stream,
+    voice,
+)
 
 from app.rag.vector_store import VectorStore
 from app.core.llm_client import GeminiClient
@@ -108,4 +119,6 @@ app.include_router(itinerary.router, prefix="/itinerary", tags=["itinerary"])
 
 app.include_router(ingest.router, prefix="/ingest", tags=["ingest"])
 app.include_router(admin_assistant.router, prefix="/admin", tags=["admin"])
+
+app.include_router(context.router, tags=["context"])
 
