@@ -26,6 +26,7 @@ OP_TEXT_GENERATION = "TEXT_GENERATION"
 OP_TEXT_TO_SPEECH = "TEXT_TO_SPEECH"
 OP_REALTIME_AUDIO = "REALTIME_AUDIO"
 OP_ITINERARY_GENERATION = "ITINERARY_GENERATION"
+OP_EMBEDDING = "EMBEDDING"
 OP_OTHER = "OTHER"
 
 # ---------------------------------------------------------------------------
@@ -91,6 +92,7 @@ ERROR_CATEGORY_UNKNOWN = "UNKNOWN"
 # Phase 1 is Google Gemini, but the field name carries no provider-native
 # schema.
 PROVIDER_GOOGLE = "google"
+PROVIDER_JINA = "jina"
 
 # All optional numeric fields of the ProviderCallUsage contract.
 TOKEN_FIELD_NAMES: tuple = (

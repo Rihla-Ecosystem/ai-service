@@ -63,51 +63,51 @@ async def identify_landmark(
     if not llm_client:
         raise HTTPException(status_code=503, detail="AI service not initialized")
 
-    nearby_context = ""
-    if lat is not None and lon is not None and vector_store:
-        try:
-            from app.rag.retriever import retrieve
-            results = await retrieve(
-                vector_store, "tourist attraction landmark", "attractions",
-                top_k=5,
-            )
-            if results:
-                names = []
-                for r in results:
-                    text = r.get("text", "")
-                    name = text.split(" | ")[0] if " | " in text else text[:80]
-                    names.append(name)
-                nearby_context = "Nearby known sites for reference: " + "; ".join(names[:5])
-        except Exception as e:
-            nearby_context = ""
+    begin_usage_tracking()
+    try:
+        nearby_context = ""
+        if lat is not None and lon is not None and vector_store:
+            try:
+                from app.rag.retriever import retrieve
+                results = await retrieve(
+                    vector_store, "tourist attraction landmark", "attractions",
+                    top_k=5,
+                )
+                if results:
+                    names = []
+                    for r in results:
+                        text = r.get("text", "")
+                        name = text.split(" | ")[0] if " | " in text else text[:80]
+                        names.append(name)
+                    nearby_context = "Nearby known sites for reference: " + "; ".join(names[:5])
+            except Exception as e:
+                nearby_context = ""
 
-    location_context = ""
-    if lat is not None and lon is not None:
-        location_context = (
-            f"\nThe user is currently at latitude {lat}, longitude {lon}."
-            " Use this location to help narrow down which landmark is pictured."
+        location_context = ""
+        if lat is not None and lon is not None:
+            location_context = (
+                f"\nThe user is currently at latitude {lat}, longitude {lon}."
+                " Use this location to help narrow down which landmark is pictured."
+            )
+
+        system_prompt = (
+            "You are an expert Egyptologist. Identify this landmark in Egypt. "
+            f"{location_context}\n"
+            f"{nearby_context}\n\n"
+            "Respond in JSON format with exactly these fields:\n"
+            "{\n"
+            '  "name": "English name of the landmark",\n'
+            '  "name_ar": "Arabic name if known",\n'
+            '  "description": "Brief description (2-3 sentences)",\n'
+            '  "category": "Type (mosque, temple, museum, pyramid, church, monument, etc.)",\n'
+            '  "historical_period": "e.g. Old Kingdom, Ptolemaic, Islamic, Modern",\n'
+            '  "wikipedia_url": "Wikipedia URL if known"\n'
+            "}\n"
+            "Do NOT include markdown formatting, just raw JSON."
         )
 
-    system_prompt = (
-        "You are an expert Egyptologist. Identify this landmark in Egypt. "
-        f"{location_context}\n"
-        f"{nearby_context}\n\n"
-        "Respond in JSON format with exactly these fields:\n"
-        "{\n"
-        '  "name": "English name of the landmark",\n'
-        '  "name_ar": "Arabic name if known",\n'
-        '  "description": "Brief description (2-3 sentences)",\n'
-        '  "category": "Type (mosque, temple, museum, pyramid, church, monument, etc.)",\n'
-        '  "historical_period": "e.g. Old Kingdom, Ptolemaic, Islamic, Modern",\n'
-        '  "wikipedia_url": "Wikipedia URL if known"\n'
-        "}\n"
-        "Do NOT include markdown formatting, just raw JSON."
-    )
+        mime_type = image.content_type or "image/jpeg"
 
-    mime_type = image.content_type or "image/jpeg"
-
-    try:
-        begin_usage_tracking()
         response = await llm_client.generate_with_image(
             system_prompt=system_prompt,
             user_message="Identify this landmark in Egypt.",
@@ -152,6 +152,8 @@ async def identify_landmark(
         return IdentifyResponse(**payload)
 
     except HTTPException:
+        consume_usage_and_attempts()
         raise
     except Exception as e:
+        consume_usage_and_attempts()
         raise HTTPException(status_code=500, detail=f"Identification failed: {str(e)}")
