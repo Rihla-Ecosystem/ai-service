@@ -9,7 +9,11 @@ from app.core.system_prompt import build_system_prompt
 from app.core.guardrails import check_input
 from app.core.auth import allow_access
 from app.core.ratelimit import rate_limit
-from app.core.llm_client import begin_usage_tracking, consume_usage
+from app.core.usage import (
+    begin_usage_tracking,
+    consume_usage_and_attempts,
+    derive_legacy_usage,
+)
 
 logger = structlog.get_logger()
 
@@ -66,6 +70,7 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
 
         async def generate():
             full_text = ""
+            consumed = False
             try:
                 async for chunk in stream:
                     if chunk:
@@ -73,20 +78,19 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
                         yield f"data: {json.dumps({'token': chunk})}\n\n"
             except Exception as e:
                 logger.error("Stream iteration error", error=str(e))
-                yield f"data: {json.dumps({'error': 'AI temporarily unavailable', 'reason': str(e)})}\n\n"
+                provider_calls, provider_attempts = consume_usage_and_attempts()
+                consumed = True
+                usage = derive_legacy_usage(provider_calls)
+                model = usage.get("model") if usage else None
+                yield f"data: {json.dumps({'error': 'AI temporarily unavailable', 'reason': str(e), 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
+                yield "data: [DONE]\n\n"
                 return
-            usage_entries = consume_usage()
-            usage = None
-            model = None
-            if usage_entries:
-                usage = {
-                    "inputTokens": sum(e.get("inputTokens", 0) for e in usage_entries),
-                    "outputTokens": sum(e.get("outputTokens", 0) for e in usage_entries),
-                    "totalTokens": sum(e.get("totalTokens", 0) for e in usage_entries),
-                }
-                model = next((e.get("model") for e in usage_entries if e.get("model")), None)
-            yield f"data: {json.dumps({'done': True, 'full_response': full_text, 'usage': usage, 'model': model})}\n\n"
-            yield "data: [DONE]\n\n"
+            if not consumed:
+                provider_calls, provider_attempts = consume_usage_and_attempts()
+                usage = derive_legacy_usage(provider_calls)
+                model = usage.get("model") if usage else None
+                yield f"data: {json.dumps({'done': True, 'full_response': full_text, 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
+                yield "data: [DONE]\n\n"
 
         return StreamingResponse(generate(), media_type="text/event-stream")
 

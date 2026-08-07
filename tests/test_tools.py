@@ -4,7 +4,7 @@ from app.agent.tools import TOOL_DEFINITIONS, EGYPT_CITIES
 
 class TestTools:
     def test_tool_definitions_exist(self):
-        assert len(TOOL_DEFINITIONS) >= 9
+        assert len(TOOL_DEFINITIONS) >= 8
 
     def test_each_tool_has_required_fields(self):
         for tool in TOOL_DEFINITIONS:

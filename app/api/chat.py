@@ -6,7 +6,11 @@ from app.agent.supervisor import route_and_respond
 from app.core.auth import allow_access
 
 from app.core.ratelimit import rate_limit
-from app.core.llm_client import begin_usage_tracking, consume_usage
+from app.core.usage import (
+    begin_usage_tracking,
+    consume_usage_and_attempts,
+    derive_legacy_usage,
+)
 
 from app.core.rate_limit import enforce_rate_limit
 from app.monitoring import metrics
@@ -36,22 +40,8 @@ class ChatResponse(BaseModel):
     reason: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
     model: Optional[str] = None
-
-
-def _sum_usage(entries: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    if not entries:
-        return None
-    model = None
-    for e in entries:
-        if e.get("model"):
-            model = e.get("model")
-            break
-    return {
-        "model": model,
-        "inputTokens": sum(e.get("inputTokens", 0) for e in entries),
-        "outputTokens": sum(e.get("outputTokens", 0) for e in entries),
-        "totalTokens": sum(e.get("totalTokens", 0) for e in entries),
-    }
+    providerCalls: Optional[List[Dict[str, Any]]] = None
+    providerAttempts: Optional[List[Dict[str, Any]]] = None
 
 
 @router.post("", response_model=ChatResponse)
@@ -85,9 +75,8 @@ async def chat_endpoint(req: ChatRequest, user: dict = Depends(rate_limit)):
         context=context,
     )
 
-
-    usage_entries = consume_usage()
-    usage = _sum_usage(usage_entries)
+    provider_calls, provider_attempts = consume_usage_and_attempts()
+    usage = derive_legacy_usage(provider_calls)
     model = usage.get("model") if usage else None
     metrics.llm_requests_total.labels(endpoint="chat", status="ok").inc()
 
@@ -100,4 +89,6 @@ async def chat_endpoint(req: ChatRequest, user: dict = Depends(rate_limit)):
         reason=result.get("reason"),
         usage=usage,
         model=model,
+        providerCalls=provider_calls,
+        providerAttempts=provider_attempts,
     )

@@ -1,0 +1,111 @@
+{
+  "voice": {
+    "probe": "corrective_spoken_voice",
+    "spoken_input": {
+      "synthesizer": "espeak-ng",
+      "sentence": "Recommend one tourist attraction in Cairo and briefly explain why.",
+      "input_audio_bytes": 126784,
+      "input_audio_mime": "audio/wav"
+    },
+    "semantic_understanding": {
+      "semanticUnderstandingVerified": false,
+      "matchedKeywords": [],
+      "responseCharLength": 282,
+      "reason": "no Cairo/attraction keyword matched"
+    },
+    "requested_model": "gemini-3.6-flash",
+    "provider_calls": [
+      {
+        "provider": "google",
+        "providerCallMade": true,
+        "requestedModel": "gemini-3.6-flash",
+        "actualModel": "gemini-3.6-flash",
+        "operation": "AUDIO_UNDERSTANDING",
+        "usageSource": "PROVIDER_RESPONSE",
+        "usageCompleteness": "COMPLETE",
+        "inputTokens": 153,
+        "outputTokens": 56,
+        "totalTokens": 397,
+        "reasoningTokens": 188,
+        "audioInputTokens": 99,
+        "providerCallId": "call-1"
+      },
+      {
+        "provider": "google",
+        "providerCallMade": true,
+        "requestedModel": "gemini-3.1-flash-tts-preview",
+        "actualModel": "gemini-3.1-flash-tts-preview",
+        "operation": "TEXT_TO_SPEECH",
+        "usageSource": "PROVIDER_RESPONSE",
+        "usageCompleteness": "COMPLETE",
+        "inputTokens": 54,
+        "outputTokens": 561,
+        "totalTokens": 615,
+        "audioOutputTokens": 561,
+        "providerCallId": "call-2"
+      }
+    ],
+    "provider_attempts": [
+      {
+        "provider": "google",
+        "operation": "AUDIO_UNDERSTANDING",
+        "requestedModel": "gemini-3.6-flash",
+        "actualModel": "gemini-3.6-flash",
+        "attemptNumber": 1,
+        "outcome": "SUCCEEDED",
+        "providerCallStarted": true,
+        "providerResponseReceived": true,
+        "providerCallStartedAt": "2026-08-05T21:54:24.770883+00:00",
+        "providerCallId": "call-1",
+        "attemptId": "attempt-1"
+      },
+      {
+        "provider": "google",
+        "operation": "TEXT_TO_SPEECH",
+        "requestedModel": "gemini-3.1-flash-tts-preview",
+        "actualModel": "gemini-3.1-flash-tts-preview",
+        "attemptNumber": 1,
+        "outcome": "SUCCEEDED",
+        "providerCallStarted": true,
+        "providerResponseReceived": true,
+        "providerCallStartedAt": "2026-08-05T21:54:28.798946+00:00",
+        "providerCallId": "call-2",
+        "attemptId": "attempt-2"
+      }
+    ],
+    "modality_non_double_count": [
+      {
+        "operation": "AUDIO_UNDERSTANDING",
+        "aggregate_arith_ok": false,
+        "breakdown_fields_present": [
+          "reasoningTokens",
+          "audioInputTokens"
+        ],
+        "breakdown_sum_not_added_to_aggregate": true,
+        "double_count_detected": false
+      },
+      {
+        "operation": "TEXT_TO_SPEECH",
+        "aggregate_arith_ok": true,
+        "breakdown_fields_present": [
+          "audioOutputTokens"
+        ],
+        "breakdown_sum_not_added_to_aggregate": true,
+        "double_count_detected": false
+      }
+    ],
+    "audio_produced": true,
+    "audio_mime": "audio/wav",
+    "tts_source": "gemini_tts",
+    "text_len": 282
+  },
+  "image": null,
+  "redaction_audit": {
+    "aiza_leak": false,
+    "api_key_field": false,
+    "b64_media_leak": false,
+    "audio_bytes_field": false,
+    "prompt_leak": false
+  },
+  "probe": "corrective_spoken_voice"
+}

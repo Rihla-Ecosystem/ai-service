@@ -54,6 +54,9 @@ Thumbs.db
 *.jsonl
 *.csv
 
+# Local tooling: offline espeak-ng build used by the corrective voice probe
+scripts/.espeak-ng-prefix/
+
 # CLI / config
 pyrightconfig.json
 poetry.toml
