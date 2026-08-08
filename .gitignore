@@ -61,3 +61,6 @@ scripts/.espeak-ng-prefix/
 pyrightconfig.json
 poetry.toml
 .python-version
+
+# Cloud deployment env (gitignored)
+.env.cloud
