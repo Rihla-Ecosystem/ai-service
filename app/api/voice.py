@@ -19,6 +19,8 @@ from app.core.auth import allow_access
 from app.core.ratelimit import rate_limit
 from app.core.rate_limit import enforce_rate_limit
 from app.monitoring import metrics
+from app.monitoring.langfuse import get_user_id
+from app.monitoring.tracing import trace_turn
 from app.core.usage import (
     begin_usage_tracking,
     consume_usage_and_attempts,
@@ -195,20 +197,29 @@ async def voice_endpoint(
 
     try:
         begin_usage_tracking()
-        response = await llm_client.generate_with_audio(
-            system_prompt=system_prompt,
-            audio_bytes=audio_bytes,
-            mime_type=mime_type,
-            extra_user_context=audio_user_context,
-        )
+        async with trace_turn(
+            feature="voice",
+            user_id=get_user_id(user),
+            session_id=conversation_id,
+            input_text="Voice message (audio understanding)",
+            tags=["voice"],
+        ) as span:
+            response = await llm_client.generate_with_audio(
+                system_prompt=system_prompt,
+                audio_bytes=audio_bytes,
+                mime_type=mime_type,
+                extra_user_context=audio_user_context,
+            )
 
-        metrics.llm_requests_total.labels(endpoint="voice", status="ok").inc()
+            metrics.llm_requests_total.labels(endpoint="voice", status="ok").inc()
 
-        text = ""
-        if response is not None and hasattr(response, "text") and response.text is not None:
-            text = response.text
+            text = ""
+            if response is not None and hasattr(response, "text") and response.text is not None:
+                text = response.text
+            if span is not None:
+                span.update(output={"response": text[:2000]})
 
-        guard_result = check_output(text)
+            guard_result = check_output(text)
         if guard_result.requires_regeneration:
             text = "I understand your concern, but let me help you with tourism information about Egypt instead."
 

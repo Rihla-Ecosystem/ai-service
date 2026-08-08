@@ -24,6 +24,7 @@ from app.rag.vector_store import VectorStore
 from app.core.llm_client import GeminiClient
 from app.monitoring.instrument import HttpMetricsMiddleware
 from app.monitoring import metrics
+from app.monitoring.langfuse import initialize as initialize_langfuse
 
 logger = structlog.get_logger()
 
@@ -64,6 +65,8 @@ async def _auto_ingest():
 async def lifespan(app: FastAPI):
     global vector_store, llm_client
     logger.info("Starting Rihla AI Service", env=settings.environment)
+
+    initialize_langfuse()
 
     llm_client = GeminiClient(api_keys=settings.gemini_key_list)
     logger.info("Gemini client initialized", key_count=len(settings.gemini_key_list))

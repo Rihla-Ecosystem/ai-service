@@ -14,6 +14,8 @@ from app.core.usage import (
 
 from app.core.rate_limit import enforce_rate_limit
 from app.monitoring import metrics
+from app.monitoring.langfuse import get_user_id
+from app.monitoring.tracing import trace_turn
 
 
 router = APIRouter()
@@ -69,11 +71,21 @@ async def chat_endpoint(req: ChatRequest, user: dict = Depends(rate_limit)):
 
     metrics.llm_requests_total.labels(endpoint="chat", status="started").inc()
 
-    result = await route_and_respond(
-        message=req.message,
+    async with trace_turn(
+        feature="chat",
+        user_id=get_user_id(user),
+        session_id=req.conversation_id,
         persona=req.persona,
-        context=context,
-    )
+        input_text=req.message,
+        tags=["chat", req.persona],
+    ) as span:
+        result = await route_and_respond(
+            message=req.message,
+            persona=req.persona,
+            context=context,
+        )
+        if span is not None:
+            span.update(output={"response": result.get("response", "")[:2000]})
 
     provider_calls, provider_attempts = consume_usage_and_attempts()
     usage = derive_legacy_usage(provider_calls)

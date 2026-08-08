@@ -11,6 +11,8 @@ from app.core.usage import (
     consume_usage_and_attempts,
     derive_legacy_usage,
 )
+from app.monitoring.langfuse import get_user_id
+from app.monitoring.tracing import trace_turn
 
 router = APIRouter()
 
@@ -51,14 +53,22 @@ async def itinerary_endpoint(req: ItineraryRequest, user: dict = Depends(rate_li
 
     begin_usage_tracking()
     try:
-        itinerary = await _recommend_itinerary(
-            interests=req.interests,
-            days=req.days,
-            budget=req.budget,
-            cities=req.cities,
-            style=req.style,
-            base_currency=req.base_currency or "",
-        )
+        async with trace_turn(
+            feature="itinerary",
+            user_id=get_user_id(user),
+            input_text="Interests: " + probe_text,
+            tags=["itinerary"],
+        ) as span:
+            itinerary = await _recommend_itinerary(
+                interests=req.interests,
+                days=req.days,
+                budget=req.budget,
+                cities=req.cities,
+                style=req.style,
+                base_currency=req.base_currency or "",
+            )
+            if span is not None:
+                span.update(output={"itinerary": itinerary[:2000]})
     finally:
         provider_calls, provider_attempts = consume_usage_and_attempts()
 

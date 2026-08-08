@@ -14,6 +14,8 @@ from app.core.usage import (
     consume_usage_and_attempts,
     derive_legacy_usage,
 )
+from app.monitoring.langfuse import get_user_id
+from app.monitoring.tracing import trace_turn
 
 logger = structlog.get_logger()
 
@@ -66,37 +68,45 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
 
     try:
         begin_usage_tracking()
-        stream = await llm_client.generate(
-            system_prompt=system_prompt,
-            user_message=user_turn,
-            stream=True,
-        )
+        async with trace_turn(
+            feature="stream",
+            user_id=get_user_id(user),
+            session_id=req.conversation_id,
+            persona=req.persona,
+            input_text=req.message,
+            tags=["chat", "stream", req.persona],
+        ) as span:
+            stream = await llm_client.generate(
+                system_prompt=system_prompt,
+                user_message=user_turn,
+                stream=True,
+            )
 
-        async def generate():
-            full_text = ""
-            consumed = False
-            try:
-                async for chunk in stream:
-                    if chunk:
-                        full_text += chunk
-                        yield f"data: {json.dumps({'token': chunk})}\n\n"
-            except Exception as e:
-                logger.error("Stream iteration error", error=str(e))
-                provider_calls, provider_attempts = consume_usage_and_attempts()
-                consumed = True
-                usage = derive_legacy_usage(provider_calls)
-                model = usage.get("model") if usage else None
-                yield f"data: {json.dumps({'error': 'AI temporarily unavailable', 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
-                yield "data: [DONE]\n\n"
-                return
-            if not consumed:
-                provider_calls, provider_attempts = consume_usage_and_attempts()
-                usage = derive_legacy_usage(provider_calls)
-                model = usage.get("model") if usage else None
-                yield f"data: {json.dumps({'done': True, 'full_response': full_text, 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
-                yield "data: [DONE]\n\n"
+            async def generate():
+                full_text = ""
+                consumed = False
+                try:
+                    async for chunk in stream:
+                        if chunk:
+                            full_text += chunk
+                            yield f"data: {json.dumps({'token': chunk})}\n\n"
+                except Exception as e:
+                    logger.error("Stream iteration error", error=str(e))
+                    provider_calls, provider_attempts = consume_usage_and_attempts()
+                    consumed = True
+                    usage = derive_legacy_usage(provider_calls)
+                    model = usage.get("model") if usage else None
+                    yield f"data: {json.dumps({'error': 'AI temporarily unavailable', 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+                if not consumed:
+                    provider_calls, provider_attempts = consume_usage_and_attempts()
+                    usage = derive_legacy_usage(provider_calls)
+                    model = usage.get("model") if usage else None
+                    yield f"data: {json.dumps({'done': True, 'full_response': full_text, 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
+                    yield "data: [DONE]\n\n"
 
-        return StreamingResponse(generate(), media_type="text/event-stream")
+            return StreamingResponse(generate(), media_type="text/event-stream")
 
     except Exception as e:
         logger.error("Stream setup error", error=str(e))
