@@ -30,6 +30,8 @@ class Settings(BaseSettings):
 
     qdrant_host: str = "qdrant"
     qdrant_port: int = 6333
+    qdrant_url: str = ""
+    qdrant_api_key: str = ""
 
     rag_data_dir: str = "data/rag"
 

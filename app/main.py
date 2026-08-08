@@ -72,6 +72,8 @@ async def lifespan(app: FastAPI):
     vector_store = VectorStore(
         host=settings.qdrant_host,
         port=settings.qdrant_port,
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
     )
     await vector_store.initialize()
     logger.info("Qdrant initialized", collections=await vector_store.list_collections())

@@ -23,13 +23,32 @@ COLLECTION_CONFIG = {
 
 
 class VectorStore:
-    def __init__(self, host: str = "qdrant", port: int = 6333):
+    def __init__(
+        self,
+        host: str = "qdrant",
+        port: int = 6333,
+        url: str = "",
+        api_key: str = "",
+    ):
         self.host = host
         self.port = port
+        self.url = url
+        self.api_key = api_key
         self.client: Optional[AsyncQdrantClient] = None
 
     async def initialize(self):
-        self.client = AsyncQdrantClient(host=self.host, port=self.port, prefer_grpc=True)
+        if self.url:
+            self.client = AsyncQdrantClient(
+                url=self.url,
+                api_key=self.api_key,
+                prefer_grpc=False,
+            )
+        else:
+            self.client = AsyncQdrantClient(
+                host=self.host,
+                port=self.port,
+                prefer_grpc=True,
+            )
         existing = await self.client.get_collections()
         existing_names = {c.name for c in existing.collections}
 
