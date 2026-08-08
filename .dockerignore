@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.env.cloud
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.md
+.DS_Store
+openapi.json
