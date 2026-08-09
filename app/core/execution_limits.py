@@ -92,7 +92,17 @@ def enforce_input_budget(system_prompt: str, user_message: str) -> None:
     budget = current_execution_budget()
     if budget is None:
         return
-    if estimate_text_tokens(system_prompt, user_message) > budget.remaining_input_tokens:
+    est = estimate_text_tokens(system_prompt, user_message)
+    if est > budget.remaining_input_tokens:
+        import structlog
+        structlog.get_logger().warning(
+            "DEBUG input budget exceeded",
+            estimated=est,
+            remaining=budget.remaining_input_tokens,
+            consumed=budget.consumed_input_tokens,
+            sys_prompt_chars=len(system_prompt or ""),
+            user_msg_chars=len(user_message or ""),
+        )
         raise ExecutionLimitExceeded("Provider-visible input exceeds the operation limit")
 
 
