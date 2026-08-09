@@ -49,6 +49,7 @@ class StreamRequest(BaseModel):
     geography: Optional[Dict[str, Any]] = None
     safety: Optional[Dict[str, Any]] = None
     user_journeys: Optional[Any] = None
+    context: Optional[Dict[str, Any]] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
     history: List[StreamHistoryMessage] = Field(default_factory=list, max_length=MAX_HISTORY_MESSAGES)
@@ -78,6 +79,8 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
         context["safety"] = req.safety
     if req.user_journeys:
         context["user_journeys"] = req.user_journeys
+    if req.context:
+        context["session"] = req.context
     if req.lat is not None and req.lon is not None:
         context["coordinates"] = {"lat": req.lat, "lon": req.lon}
 
