@@ -17,7 +17,9 @@ fake. Attempts must never contain prompts, responses, media, or secrets.
 """
 
 import asyncio
+import io
 import json
+import wave
 
 import pytest
 from fastapi.testclient import TestClient
@@ -484,14 +486,12 @@ class TestLocalProcessingFailure:
 
 
 # ---------------------------------------------------------------------------
-# Scenario F — voice: audio ok + TTS fails + gTTS fallback
+# Scenario F — voice: audio ok + TTS fails -> billed operation fails safely
 # ---------------------------------------------------------------------------
 
 class TestVoiceScenarioF:
-    def test_voice_audio_success_tts_fail_gtts_fallback(self, monkeypatch):
+    def test_voice_audio_success_tts_failure_does_not_fall_back_to_gtts(self, monkeypatch):
         from app.api import voice as voice_module
-
-        monkeypatch.setattr(voice_module, "gtts_audio_bytes", lambda text: (b"GFAKE", "audio/mpeg"))
 
         class _FakeLLM:
             async def generate_with_audio(self, **kw):
@@ -532,24 +532,20 @@ class TestVoiceScenarioF:
                 raise RuntimeError("Gemini TTS failed")
 
         monkeypatch.setattr("app.main.llm_client", _FakeLLM())
+        wav = io.BytesIO()
+        with wave.open(wav, "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(8000)
+            writer.writeframes(b"\x00\x00" * 8000)
         client = TestClient(app)
         resp = client.post(
             "/voice",
             headers=INTERNAL_KEY_HEADERS,
-            files={"audio": ("a.mp3", b"\xff\xfb", "audio/mpeg")},
+            files={"audio": ("a.wav", wav.getvalue(), "audio/wav")},
         )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["audio_url"] is not None, "gTTS fallback must still produce audio"
-        assert len(body["providerCalls"]) == 1
-        assert body["providerCalls"][0]["operation"] == OP_AUDIO_UNDERSTANDING
-        attempts = body["providerAttempts"]
-        assert len(attempts) == 2
-        assert attempts[0]["outcome"] == "SUCCEEDED"
-        assert attempts[0]["operation"] == OP_AUDIO_UNDERSTANDING
-        assert attempts[1]["outcome"] == "INDETERMINATE"
-        assert attempts[1]["operation"] == OP_TEXT_TO_SPEECH
-        assert attempts[1]["errorCategory"] == ERROR_CATEGORY_LOCAL_PROCESSING
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Voice processing failed. Please try again."
 
 
 # ---------------------------------------------------------------------------

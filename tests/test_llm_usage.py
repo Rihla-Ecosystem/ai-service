@@ -166,3 +166,32 @@ class TestMultipleCallsGetDistinctIds:
         calls = consume_usage()
 
         assert [c["providerCallId"] for c in calls] == ["call-1", "call-2"]
+
+
+class TestDemoOutputCaps:
+    def test_tool_image_and_audio_configs_are_capped_at_chat_limit(self, monkeypatch):
+        from app.core.llm_client import CHAT_MAX_OUTPUT_TOKENS
+
+        client, fake = _make_client(monkeypatch)
+        configs = []
+
+        class _Resp:
+            model_version = "gemini-3.6-flash"
+
+        def capture_config(**kwargs):
+            configs.append(kwargs["config"])
+            return _Resp()
+
+        fake.models.generate_content = capture_config
+
+        async def _run():
+            await client.generate_with_tools(system_prompt="", user_message="hi", tools=[])
+            await client.generate_with_image(
+                system_prompt="", user_message="identify", image_bytes=b"image"
+            )
+            await client.generate_with_audio(system_prompt="", audio_bytes=b"audio")
+
+        asyncio.run(_run())
+
+        assert CHAT_MAX_OUTPUT_TOKENS == 1200
+        assert [config.max_output_tokens for config in configs] == [1200, 1200, 1200]

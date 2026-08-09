@@ -336,9 +336,15 @@ def derive_legacy_usage(
     model = None
     for c in calls:
         m = c.get("actualModel") or c.get("requestedModel")
-        if m:
+        if m and str(m).startswith("gemini"):
             model = m
             break
+    if model is None:
+        for c in calls:
+            m = c.get("actualModel") or c.get("requestedModel")
+            if m:
+                model = m
+                break
     result: Dict[str, Any] = {"model": model}
     result.update(aggregated)
     return result

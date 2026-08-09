@@ -3,7 +3,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from app.core.system_prompt import build_system_prompt, build_user_context
 from app.core.guardrails import check_input
@@ -16,10 +16,38 @@ from app.core.usage import (
 )
 from app.monitoring.langfuse import get_user_id
 from app.monitoring.tracing import trace_turn
+from app.core.llm_client import CHAT_MAX_OUTPUT_TOKENS
+from app.core.execution_limits import (
+    AI_CHAT_QUERY,
+    begin_execution_budget,
+    end_execution_budget,
+    estimate_text_tokens,
+)
 
 logger = structlog.get_logger()
 
 router = APIRouter()
+MAX_HISTORY_MESSAGES = 20
+MAX_HISTORY_TOKENS = 6000
+
+
+class StreamHistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=4000)
+
+
+def _format_history(history: List[StreamHistoryMessage]) -> str:
+    selected = []
+    used = 0
+    for item in reversed(history):
+        tokens = estimate_text_tokens(item.role, item.content)
+        if used + tokens > MAX_HISTORY_TOKENS:
+            break
+        selected.append(item)
+        used += tokens
+    return "\n".join(["Previous conversation (oldest first):"] + [
+        f"{item.role}: {item.content}" for item in reversed(selected)
+    ]) if selected else ""
 
 
 class StreamRequest(BaseModel):
@@ -31,6 +59,7 @@ class StreamRequest(BaseModel):
     geography: Optional[Dict[str, Any]] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
+    history: List[StreamHistoryMessage] = Field(default_factory=list, max_length=MAX_HISTORY_MESSAGES)
 
 
 @router.post("/stream")
@@ -53,7 +82,8 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
         context["coordinates"] = {"lat": req.lat, "lon": req.lon}
 
     system_prompt = build_system_prompt(persona=req.persona, context=context)
-    user_turn = req.message
+    history = _format_history(req.history)
+    user_turn = f"{history}\n\nCurrent user message: {req.message}" if history else req.message
     user_context_data = build_user_context(context)
     if user_context_data:
         user_turn = f"{req.message}\n\n{user_context_data}"
@@ -68,6 +98,7 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
 
     try:
         begin_usage_tracking()
+        begin_execution_budget(AI_CHAT_QUERY)
         async with trace_turn(
             feature="stream",
             user_id=get_user_id(user),
@@ -79,6 +110,7 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
             stream = await llm_client.generate(
                 system_prompt=system_prompt,
                 user_message=user_turn,
+                max_output_tokens=CHAT_MAX_OUTPUT_TOKENS,
                 stream=True,
             )
 
@@ -98,6 +130,7 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
                     model = usage.get("model") if usage else None
                     yield f"data: {json.dumps({'error': 'AI temporarily unavailable', 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
                     yield "data: [DONE]\n\n"
+                    end_execution_budget()
                     return
                 if not consumed:
                     provider_calls, provider_attempts = consume_usage_and_attempts()
@@ -105,6 +138,7 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
                     model = usage.get("model") if usage else None
                     yield f"data: {json.dumps({'done': True, 'full_response': full_text, 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
                     yield "data: [DONE]\n\n"
+                    end_execution_budget()
 
             return StreamingResponse(generate(), media_type="text/event-stream")
 

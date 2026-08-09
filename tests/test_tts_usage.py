@@ -112,6 +112,24 @@ def test_successful_gemini_tts_provider_call_telemetry():
     asyncio.run(_test())
 
 
+def test_gemini_tts_request_has_the_single_logical_750_token_output_ceiling():
+    async def _test():
+        client = GeminiClient(api_keys=["test-key-12345"])
+        mock_sdk_client = MagicMock()
+        mock_sdk_client.models.generate_content = MagicMock(
+            return_value=make_mock_tts_response()
+        )
+        client.keys[0].client = mock_sdk_client
+
+        await client.generate_speech("x" * 600)
+
+        kwargs = mock_sdk_client.models.generate_content.call_args.kwargs
+        assert kwargs["config"].max_output_tokens == 750
+        assert kwargs["contents"][0].parts[0].text == "x" * 500
+
+    asyncio.run(_test())
+
+
 def test_voice_endpoint_end_to_end_combines_audio_understanding_and_tts_calls():
     async def _test():
         from app.api.voice import voice_endpoint
@@ -206,7 +224,7 @@ def test_tts_missing_usage_metadata_records_unavailable():
     asyncio.run(_test())
 
 
-def test_gtts_fallback_preserves_recorded_gemini_usage():
+def test_gemini_tts_local_processing_failure_does_not_fall_back_to_gtts():
     async def _test():
         client = GeminiClient(api_keys=["test-key-12345"])
         mock_sdk_client = MagicMock()
@@ -224,13 +242,9 @@ def test_gtts_fallback_preserves_recorded_gemini_usage():
         client.keys[0].client = mock_sdk_client
 
         begin_usage_tracking()
-        with patch("app.api.voice.gtts_audio_bytes", return_value=(b"gtts_audio_bytes", "audio/mpeg")):
-            from app.api.voice import synthesize_speech
-            result = await synthesize_speech("Fallback test text", client)
-
-        assert result is not None
-        assert result[0] == b"gtts_audio_bytes"
-        assert result[1] == "audio/mpeg"
+        from app.api.voice import TtsGenerationError, synthesize_speech
+        with pytest.raises(TtsGenerationError):
+            await synthesize_speech("Fallback test text", client)
 
         calls, attempts = consume_usage_and_attempts()
         # The Gemini provider call recorded when response returned MUST NOT be deleted
@@ -251,7 +265,7 @@ def test_gtts_fallback_preserves_recorded_gemini_usage():
     asyncio.run(_test())
 
 
-def test_gtts_fallback_when_gemini_fails_before_response():
+def test_gemini_tts_failure_before_response_does_not_fall_back_to_gtts():
     async def _test():
         client = GeminiClient(api_keys=["test-key-12345"])
         client.MAX_RETRIES = 0
@@ -260,12 +274,9 @@ def test_gtts_fallback_when_gemini_fails_before_response():
         client.keys[0].client = mock_sdk_client
 
         begin_usage_tracking()
-        with patch("app.api.voice.gtts_audio_bytes", return_value=(b"gtts_audio_bytes", "audio/mpeg")):
-            from app.api.voice import synthesize_speech
-            result = await synthesize_speech("Fallback failure test text", client)
-
-        assert result is not None
-        assert result[0] == b"gtts_audio_bytes"
+        from app.api.voice import TtsGenerationError, synthesize_speech
+        with pytest.raises(TtsGenerationError):
+            await synthesize_speech("Fallback failure test text", client)
 
         calls, attempts = consume_usage_and_attempts()
         # No providerCall was made / received

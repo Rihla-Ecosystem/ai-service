@@ -8,8 +8,11 @@ usage tracking, must never mutate the stored cache entry, and must never reuse
 provider calls recorded during the originating cache miss.
 """
 
+import base64
 import json
+from unittest.mock import patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api import identify as identify_module
@@ -24,7 +27,10 @@ from app.config import settings
 
 INTERNAL_KEY_HEADERS = {"X-Internal-Api-Key": settings.internal_api_key}
 
-_IMG = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 4
+_IMG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/"
+    "4arq5AAAAABJRU5ErkJggg=="
+)
 
 
 class _FakeResponse:
@@ -193,6 +199,28 @@ class TestCacheHitProviderCalls:
         assert "providerCalls" not in stored
         assert "usage" not in stored
         assert "model" not in stored
+
+
+class TestImageDimensionLimit:
+    def test_decoded_pixel_limit_rejects_an_oversized_image(self):
+        class _OversizedImage:
+            size = (5000, 5000)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def verify(self):
+                return None
+
+        with patch("app.api.identify.Image.open", return_value=_OversizedImage()):
+            try:
+                identify_module._enforce_image_dimensions(b"image bytes")
+                assert False, "expected decoded image pixel limit rejection"
+            except HTTPException as exc:
+                assert exc.status_code == 413
 
         _identify(client)
         _identify(client)

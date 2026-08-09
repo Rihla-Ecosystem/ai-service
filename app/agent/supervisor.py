@@ -5,6 +5,7 @@ from app.core.system_prompt import build_system_prompt, build_user_context
 from app.core.guardrails import check_input, check_output, sanitize_output
 from app.agent.tools import TOOL_DEFINITIONS, call_tool, validate_tool_arguments, allowed_tools_for_persona
 from app.config import settings
+from app.core.llm_client import CHAT_MAX_OUTPUT_TOKENS
 
 logger = structlog.get_logger()
 
@@ -137,6 +138,7 @@ async def route_and_respond(
             response = await llm_client.generate(
                 system_prompt=system_prompt,
                 user_message=combined_message,
+                max_output_tokens=CHAT_MAX_OUTPUT_TOKENS,
             )
 
         text = _safe_text(response)
@@ -147,6 +149,7 @@ async def route_and_respond(
             response = await llm_client.generate(
                 system_prompt=system_prompt + "\n\nIMPORTANT: Do not mention restricted areas.",
                 user_message=user_turn,
+                max_output_tokens=CHAT_MAX_OUTPUT_TOKENS,
             )
             text = _safe_text(response)
 
