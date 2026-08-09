@@ -3,8 +3,9 @@ import structlog
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
+from app.agent.supervisor import route_and_respond
 from app.core.system_prompt import build_system_prompt, build_user_context
 from app.core.guardrails import check_input
 from app.core.auth import allow_access
@@ -16,6 +17,8 @@ from app.core.usage import (
 )
 from app.monitoring.langfuse import get_user_id
 from app.monitoring.tracing import trace_turn
+from app.core.rate_limit import enforce_rate_limit
+from app.monitoring import metrics
 
 logger = structlog.get_logger()
 
@@ -29,6 +32,8 @@ class StreamRequest(BaseModel):
     user: Optional[Dict[str, Any]] = None
     environment: Optional[Dict[str, Any]] = None
     geography: Optional[Dict[str, Any]] = None
+    safety: Optional[Dict[str, Any]] = None
+    user_journeys: Optional[Any] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
 
@@ -49,25 +54,16 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
         context["environment"] = req.environment
     if req.geography:
         context["geography"] = req.geography
+    if req.safety:
+        context["safety"] = req.safety
+    if req.user_journeys:
+        context["user_journeys"] = req.user_journeys
     if req.lat is not None and req.lon is not None:
         context["coordinates"] = {"lat": req.lat, "lon": req.lon}
 
-    system_prompt = build_system_prompt(persona=req.persona, context=context)
-    user_turn = req.message
-    user_context_data = build_user_context(context)
-    if user_context_data:
-        user_turn = f"{req.message}\n\n{user_context_data}"
-
-    from app.main import llm_client
-
-    if not llm_client:
-        async def no_client():
-            yield f"data: {json.dumps({'error': 'AI service not initialized'})}\n\n"
-            yield "data: [DONE]\n\n"
-        return StreamingResponse(no_client(), media_type="text/event-stream")
+    begin_usage_tracking()
 
     try:
-        begin_usage_tracking()
         async with trace_turn(
             feature="stream",
             user_id=get_user_id(user),
@@ -76,41 +72,33 @@ async def chat_stream(req: StreamRequest, user: dict = Depends(rate_limit)):
             input_text=req.message,
             tags=["chat", "stream", req.persona],
         ) as span:
-            stream = await llm_client.generate(
-                system_prompt=system_prompt,
-                user_message=user_turn,
-                stream=True,
+            result = await route_and_respond(
+                message=req.message,
+                persona=req.persona,
+                context=context,
             )
+            if span is not None:
+                span.update(output={"response": result.get("response", "")[:2000]})
 
-            async def generate():
-                full_text = ""
-                consumed = False
-                try:
-                    async for chunk in stream:
-                        if chunk:
-                            full_text += chunk
-                            yield f"data: {json.dumps({'token': chunk})}\n\n"
-                except Exception as e:
-                    logger.error("Stream iteration error", error=str(e))
-                    provider_calls, provider_attempts = consume_usage_and_attempts()
-                    consumed = True
-                    usage = derive_legacy_usage(provider_calls)
-                    model = usage.get("model") if usage else None
-                    yield f"data: {json.dumps({'error': 'AI temporarily unavailable', 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
-                    yield "data: [DONE]\n\n"
-                    return
-                if not consumed:
-                    provider_calls, provider_attempts = consume_usage_and_attempts()
-                    usage = derive_legacy_usage(provider_calls)
-                    model = usage.get("model") if usage else None
-                    yield f"data: {json.dumps({'done': True, 'full_response': full_text, 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
-                    yield "data: [DONE]\n\n"
+        provider_calls, provider_attempts = consume_usage_and_attempts()
+        usage = derive_legacy_usage(provider_calls)
+        model = usage.get("model") if usage else None
 
-            return StreamingResponse(generate(), media_type="text/event-stream")
+        async def generate():
+            # Single-chunk response (non-streaming fallback)
+            response_text = result.get("response", "")
+            if response_text:
+                yield f"data: {json.dumps({'token': response_text})}\n\n"
+            yield f"data: {json.dumps({'done': True, 'full_response': response_text, 'usage': usage, 'model': model, 'providerCalls': provider_calls, 'providerAttempts': provider_attempts})}\n\n"
+            yield "data: [DONE]\n\n"
+
+        metrics.llm_requests_total.labels(endpoint="chat_stream", status="ok").inc()
+        return StreamingResponse(generate(), media_type="text/event-stream")
 
     except Exception as e:
-        logger.error("Stream setup error", error=str(e))
+        logger.error("Stream processing error", error=str(e))
         async def error_stream():
             yield f"data: {json.dumps({'error': 'AI temporarily unavailable'})}\n\n"
             yield "data: [DONE]\n\n"
+        metrics.llm_requests_total.labels(endpoint="chat_stream", status="error").inc()
         return StreamingResponse(error_stream(), media_type="text/event-stream")
