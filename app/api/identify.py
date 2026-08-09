@@ -1,9 +1,11 @@
 import hashlib
 import json as json_mod
+from io import BytesIO
 import structlog
 from fastapi import APIRouter, File, Form, UploadFile, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
+from PIL import Image, UnidentifiedImageError
 
 from app.core.guardrails import check_output
 from app.core.auth import allow_access
@@ -16,12 +18,19 @@ from app.core.usage import (
 from app.config import settings
 from app.monitoring.langfuse import get_user_id
 from app.monitoring.tracing import trace_turn
+from app.core.execution_limits import (
+    AI_IMAGE_ANALYSIS,
+    begin_execution_budget,
+    end_execution_budget,
+)
 
 logger = structlog.get_logger()
 
 router = APIRouter()
 
 _cache: Dict[str, Any] = {}
+MAX_IMAGE_DIMENSION = 8_192
+MAX_IMAGE_PIXELS = 20_000_000
 
 
 class IdentifyResponse(BaseModel):
@@ -40,6 +49,20 @@ class IdentifyResponse(BaseModel):
     providerAttempts: Optional[list] = None
 
 
+def _enforce_image_dimensions(image_bytes: bytes) -> None:
+    """Bound decoded image work without changing the existing upload contract."""
+    try:
+        with Image.open(BytesIO(image_bytes)) as decoded:
+            width, height = decoded.size
+            decoded.verify()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid image data") from exc
+    if width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION:
+        raise HTTPException(status_code=413, detail="Image dimensions exceed maximum allowed size")
+    if width * height > MAX_IMAGE_PIXELS:
+        raise HTTPException(status_code=413, detail="Image pixel count exceeds maximum allowed size")
+
+
 @router.post("", response_model=IdentifyResponse)
 async def identify_landmark(
     image: UploadFile = File(...),
@@ -54,6 +77,8 @@ async def identify_landmark(
 
     if len(image_bytes) > settings.max_upload_bytes:
         raise HTTPException(status_code=413, detail="Image file exceeds maximum allowed size")
+
+    _enforce_image_dimensions(image_bytes)
 
     img_hash = hashlib.md5(image_bytes).hexdigest()
     cache_key = f"{img_hash}_{lat}_{lon}"
@@ -70,6 +95,7 @@ async def identify_landmark(
     mime_type = image.content_type or "image/jpeg"
 
     begin_usage_tracking()
+    begin_execution_budget(AI_IMAGE_ANALYSIS)
     try:
         async with trace_turn(
             feature="identify",
@@ -89,6 +115,8 @@ async def identify_landmark(
         logger.error("Identification failed", error=str(e))
         consume_usage_and_attempts()
         raise HTTPException(status_code=500, detail="Identification failed. Please try again.")
+    finally:
+        end_execution_budget()
 
 
 async def _identify_core(

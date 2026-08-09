@@ -8,6 +8,14 @@ from google import genai
 from google.genai import types as genai_types
 
 from app.config import settings
+from app.core.execution_limits import (
+    OPERATION_MAX_OUTPUT_TOKENS,
+    VOICE_MEDIA_EXECUTION_POLICY,
+    enforce_input_budget,
+    output_limit,
+    record_input_tokens,
+    record_output_tokens,
+)
 from app.core.gemini_usage import extract_response_model, extract_token_counts
 from app.core.usage import (
     ATTEMPT_OUTCOME_FAILED,
@@ -41,6 +49,8 @@ from app.core.usage import (
 )
 
 logger = structlog.get_logger()
+
+CHAT_MAX_OUTPUT_TOKENS = OPERATION_MAX_OUTPUT_TOKENS
 
 GEMINI_MODEL_FALLBACKS = [
     "gemini-3.6-flash",
@@ -109,18 +119,20 @@ class GeminiKey:
 
 
 class GeminiClient:
-    MAX_RETRIES = 10
+    MAX_RETRIES = 2
 
-    def __init__(self, api_keys: List[str], cooldown_seconds: float = 60.0):
+    def __init__(self, api_keys: List[str], cooldown_seconds: float = 3.0):
         self.cooldown_seconds = cooldown_seconds
         self.keys = [GeminiKey(k) for k in api_keys]
         self._round_robin_index = 0
-        # Process-env override (default keeps historical behavior).
+        # A logical Gemini call is capped at one initial attempt plus two
+        # retries. Keep the environment override for controlled reductions,
+        # but never allow it to raise the demo safety ceiling.
         env_max_retries = os.environ.get("GEMINI_MAX_RETRIES")
         if env_max_retries is not None:
             try:
                 parsed = int(env_max_retries)
-                self.MAX_RETRIES = max(0, parsed)
+                self.MAX_RETRIES = min(2, max(0, parsed))
             except ValueError:
                 logger.warning(
                     "GEMINI_MAX_RETRIES is not an integer; ignoring override",
@@ -131,13 +143,13 @@ class GeminiClient:
         else:
             logger.info("GeminiClient initialized", key_count=len(self.keys))
 
-    def _get_next_available_key(self) -> Optional[GeminiKey]:
+    def _get_next_available_key(self, is_retry: bool = False) -> Optional[GeminiKey]:
         for _ in range(len(self.keys)):
             key = self.keys[self._round_robin_index % len(self.keys)]
             self._round_robin_index = (self._round_robin_index + 1) % len(self.keys)
-            if key.is_available():
+            if key.is_available() or is_retry:
                 return key
-        return None
+        return self.keys[0] if self.keys else None
 
     def _model_for_retry(self, retry_count: int) -> str:
         models = [settings.gemini_model]
@@ -273,6 +285,10 @@ class GeminiClient:
         Returns the assigned ``providerCallId`` for attempt linkage.
         """
         counts = extract_token_counts(response)
+        record_input_tokens(
+            counts.get("inputTokens"), operation, counts.get("audioInputTokens")
+        )
+        record_output_tokens(counts.get("outputTokens"), operation)
         actual_model = extract_response_model(response)
         call = make_provider_call(
             provider=PROVIDER_GOOGLE,
@@ -376,10 +392,14 @@ class GeminiClient:
         if _retry_count > self.MAX_RETRIES:
             raise RuntimeError("Max retries exceeded for Gemini API call")
 
-        key = self._get_next_available_key()
+        key = self._get_next_available_key(_retry_count > 0)
         if not key:
             raise RuntimeError("All API keys are degraded or in cooldown")
 
+        # Resolve once per logical call. Recursive retries receive this exact
+        # limit and therefore never claim fresh operation budget.
+        effective_output_limit = output_limit(max_output_tokens) if _retry_count == 0 else max_output_tokens
+        enforce_input_budget(system_prompt, user_message)
         model = self._model_for_retry(_retry_count)
         contents = [
             genai_types.Content(
@@ -390,7 +410,7 @@ class GeminiClient:
         config = genai_types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=temperature,
-            max_output_tokens=max_output_tokens,
+            max_output_tokens=effective_output_limit,
             safety_settings=safety_settings(),
         )
 
@@ -445,7 +465,7 @@ class GeminiClient:
                 system_prompt=system_prompt,
                 user_message=user_message,
                 temperature=temperature,
-                max_output_tokens=max_output_tokens,
+                max_output_tokens=effective_output_limit,
                 stream=stream,
                 operation=operation,
                 _retry_count=_retry_count + 1,
@@ -459,14 +479,19 @@ class GeminiClient:
         temperature: float = 0.7,
         operation: str = OP_TEXT_CHAT,
         _retry_count: int = 0,
+        _output_limit: Optional[int] = None,
     ):
         if _retry_count > self.MAX_RETRIES:
             raise RuntimeError("Max retries exceeded for Gemini tool call")
 
-        key = self._get_next_available_key()
+        key = self._get_next_available_key(_retry_count > 0)
         if not key:
             raise RuntimeError("All API keys are degraded or in cooldown")
 
+        effective_output_limit = output_limit(CHAT_MAX_OUTPUT_TOKENS) if _retry_count == 0 else _output_limit
+        if effective_output_limit is None:
+            raise RuntimeError("Retry output limit is missing")
+        enforce_input_budget(system_prompt, user_message)
         model = self._model_for_retry(_retry_count)
         contents = [
             genai_types.Content(
@@ -477,6 +502,7 @@ class GeminiClient:
         config = genai_types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=temperature,
+            max_output_tokens=effective_output_limit,
             tools=[genai_types.Tool(function_declarations=tools)],
             safety_settings=safety_settings(),
         )
@@ -523,6 +549,7 @@ class GeminiClient:
                 temperature=temperature,
                 operation=operation,
                 _retry_count=_retry_count + 1,
+                _output_limit=effective_output_limit,
             )
 
     async def generate_with_image(
@@ -533,14 +560,19 @@ class GeminiClient:
         mime_type: str = "image/jpeg",
         operation: str = OP_IMAGE_ANALYSIS,
         _retry_count: int = 0,
+        _output_limit: Optional[int] = None,
     ):
         if _retry_count > self.MAX_RETRIES:
             raise RuntimeError("Max retries exceeded for Gemini vision call")
 
-        key = self._get_next_available_key()
+        key = self._get_next_available_key(_retry_count > 0)
         if not key:
             raise RuntimeError("All API keys are degraded or in cooldown")
 
+        effective_output_limit = output_limit(CHAT_MAX_OUTPUT_TOKENS) if _retry_count == 0 else _output_limit
+        if effective_output_limit is None:
+            raise RuntimeError("Retry output limit is missing")
+        enforce_input_budget(system_prompt, user_message)
         model = self._model_for_retry(_retry_count)
         contents = [
             genai_types.Content(
@@ -556,6 +588,7 @@ class GeminiClient:
         config = genai_types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=0.3,
+            max_output_tokens=effective_output_limit,
             safety_settings=safety_settings(),
         )
 
@@ -601,6 +634,7 @@ class GeminiClient:
                 mime_type=mime_type,
                 operation=operation,
                 _retry_count=_retry_count + 1,
+                _output_limit=effective_output_limit,
             )
 
     async def generate_with_audio(
@@ -611,14 +645,18 @@ class GeminiClient:
         extra_user_context: str = "",
         operation: str = OP_AUDIO_UNDERSTANDING,
         _retry_count: int = 0,
+        _output_limit: Optional[int] = None,
     ):
         if _retry_count > self.MAX_RETRIES:
             raise RuntimeError("Max retries exceeded for Gemini audio call")
 
-        key = self._get_next_available_key()
+        key = self._get_next_available_key(_retry_count > 0)
         if not key:
             raise RuntimeError("All API keys are degraded or in cooldown")
 
+        effective_output_limit = output_limit(CHAT_MAX_OUTPUT_TOKENS) if _retry_count == 0 else _output_limit
+        if effective_output_limit is None:
+            raise RuntimeError("Retry output limit is missing")
         model = self._model_for_retry(_retry_count)
         user_text = "Process this audio and respond appropriately."
         if extra_user_context:
@@ -637,6 +675,7 @@ class GeminiClient:
         config = genai_types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=0.5,
+            max_output_tokens=effective_output_limit,
             safety_settings=safety_settings(),
         )
 
@@ -682,7 +721,11 @@ class GeminiClient:
                 extra_user_context=extra_user_context,
                 operation=operation,
                 _retry_count=_retry_count + 1,
+                _output_limit=effective_output_limit,
             )
+
+    TTS_MAX_INPUT_CHARS = VOICE_MEDIA_EXECUTION_POLICY["max_tts_input_chars"]
+    TTS_MAX_OUTPUT_AUDIO_TOKENS = VOICE_MEDIA_EXECUTION_POLICY["max_tts_output_tokens"]
 
     async def generate_speech(
         self,
@@ -697,7 +740,7 @@ class GeminiClient:
             raise RuntimeError("Gemini TTS unavailable after retries")
 
         voice = voice_name or settings.tts_voice
-        key = self._get_next_available_key()
+        key = self._get_next_available_key(_retry_count > 0)
         if not key:
             raise RuntimeError("All API keys are degraded or in cooldown")
 
@@ -705,11 +748,12 @@ class GeminiClient:
         contents = [
             genai_types.Content(
                 role="user",
-                parts=[genai_types.Part(text=text[:500])],
+                parts=[genai_types.Part(text=text[:self.TTS_MAX_INPUT_CHARS])],
             )
         ]
         config = genai_types.GenerateContentConfig(
             response_modalities=["AUDIO"],
+            max_output_tokens=self.TTS_MAX_OUTPUT_AUDIO_TOKENS,
             safety_settings=safety_settings(),
             speech_config=genai_types.SpeechConfig(
                 voice_config=genai_types.VoiceConfig(

@@ -13,6 +13,11 @@ from app.core.usage import (
 )
 from app.monitoring.langfuse import get_user_id
 from app.monitoring.tracing import trace_turn
+from app.core.execution_limits import (
+    AI_TRIP_ITINERARY,
+    begin_execution_budget,
+    end_execution_budget,
+)
 
 router = APIRouter()
 
@@ -52,6 +57,7 @@ async def itinerary_endpoint(req: ItineraryRequest, user: dict = Depends(rate_li
         raise HTTPException(status_code=400, detail=f"Request blocked: {guard.reason}")
 
     begin_usage_tracking()
+    begin_execution_budget(AI_TRIP_ITINERARY)
     try:
         async with trace_turn(
             feature="itinerary",
@@ -71,6 +77,7 @@ async def itinerary_endpoint(req: ItineraryRequest, user: dict = Depends(rate_li
                 span.update(output={"itinerary": itinerary[:2000]})
     finally:
         provider_calls, provider_attempts = consume_usage_and_attempts()
+        end_execution_budget()
 
     usage = derive_legacy_usage(provider_calls)
     model = usage.get("model") if usage else None
