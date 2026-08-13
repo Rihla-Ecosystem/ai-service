@@ -169,7 +169,9 @@ def make_provider_attempt(
     outcome: str,
     provider_call_started: Optional[bool] = None,
     provider_call_started_at: Optional[str] = None,
+    provider_completed_at: Optional[str] = None,
     provider_response_received: bool = False,
+    usage_confirmed: Optional[bool] = None,
     provider_call_id: Optional[str] = None,
     error_category: Optional[str] = None,
     http_status: Optional[int] = None,
@@ -201,6 +203,10 @@ def make_provider_attempt(
     }
     if provider_call_started_at is not None:
         attempt["providerCallStartedAt"] = provider_call_started_at
+    if provider_completed_at is not None:
+        attempt["providerCompletedAt"] = provider_completed_at
+    if usage_confirmed is not None:
+        attempt["usageConfirmed"] = usage_confirmed
     if provider_call_id is not None:
         attempt["providerCallId"] = provider_call_id
     if error_category is not None:

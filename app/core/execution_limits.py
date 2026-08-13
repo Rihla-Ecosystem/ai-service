@@ -2,20 +2,22 @@
 
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 AI_CHAT_QUERY = "AI_CHAT_QUERY"
 AI_IMAGE_ANALYSIS = "AI_IMAGE_ANALYSIS"
 REAL_TIME_TRANSLATION = "REAL_TIME_TRANSLATION"
 AI_TRIP_ITINERARY = "AI_TRIP_ITINERARY"
+AI_CONTEXT_ANALYZE = "AI_CONTEXT_ANALYZE"
 
-# This is the single provider-execution policy. Budgets are installed once at
-# a billed operation boundary and are cumulative across all nested Gemini calls.
-AI_EXECUTION_POLICIES = {
-    AI_CHAT_QUERY: {"max_input_tokens": 6_000, "max_output_tokens": 800},
-    AI_IMAGE_ANALYSIS: {"max_input_tokens": 3_000, "max_output_tokens": 400},
-    REAL_TIME_TRANSLATION: {"max_input_tokens": 1_000, "max_output_tokens": 500},
-    AI_TRIP_ITINERARY: {"max_input_tokens": 8_000, "max_output_tokens": 1_000},
+# Absolute local safety ceilings. Business budgets are supplied by Core per
+# request and are clamped here; these values are never a second business policy.
+AI_EXECUTION_SAFETY_CEILINGS = {
+    AI_CHAT_QUERY: {"max_input_tokens": 16_000, "max_output_tokens": 2_048},
+    AI_IMAGE_ANALYSIS: {"max_input_tokens": 4_000, "max_output_tokens": 1_024},
+    REAL_TIME_TRANSLATION: {"max_input_tokens": 2_000, "max_output_tokens": 1_024},
+    AI_TRIP_ITINERARY: {"max_input_tokens": 12_000, "max_output_tokens": 2_048},
+    AI_CONTEXT_ANALYZE: {"max_input_tokens": 4_000, "max_output_tokens": 1_024},
 }
 
 # Voice media exposure is deliberately separate from text ExecutionBudget.
@@ -28,8 +30,8 @@ VOICE_MEDIA_EXECUTION_POLICY = {
 }
 
 # Compatibility aliases for callers/tests that only need the Chat policy.
-CHAT_MAX_INPUT_TOKENS = AI_EXECUTION_POLICIES[AI_CHAT_QUERY]["max_input_tokens"]
-OPERATION_MAX_OUTPUT_TOKENS = AI_EXECUTION_POLICIES[AI_CHAT_QUERY]["max_output_tokens"]
+CHAT_MAX_INPUT_TOKENS = AI_EXECUTION_SAFETY_CEILINGS[AI_CHAT_QUERY]["max_input_tokens"]
+OPERATION_MAX_OUTPUT_TOKENS = AI_EXECUTION_SAFETY_CEILINGS[AI_CHAT_QUERY]["max_output_tokens"]
 
 
 class ExecutionLimitExceeded(RuntimeError):
@@ -55,7 +57,46 @@ class ExecutionBudget:
 _budget: ContextVar[Optional[ExecutionBudget]] = ContextVar("rihla_execution_budget", default=None)
 
 
-def begin_execution_budget(feature: str = AI_CHAT_QUERY) -> ExecutionBudget:
+def _positive_int(value: Any, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"executionBudget.{name} must be a positive integer")
+    return value
+
+
+def parse_execution_budget(feature: str, requested: Optional[Mapping[str, Any]]) -> ExecutionBudget:
+    """Validate Core's contract and clamp it to local non-business ceilings."""
+    try:
+        ceiling = AI_EXECUTION_SAFETY_CEILINGS[feature]
+    except KeyError as exc:
+        raise ValueError(f"Unknown AI execution policy: {feature}") from exc
+    if requested is None:
+        # Compatibility for internal/direct callers; public billed Core calls
+        # always transmit a budget.
+        return ExecutionBudget(**ceiling)
+    max_input = _positive_int(requested.get("maxInputTokens"), "maxInputTokens")
+    max_output = _positive_int(requested.get("maxOutputTokens"), "maxOutputTokens")
+    return ExecutionBudget(
+        max_input_tokens=min(max_input, ceiling["max_input_tokens"]),
+        max_output_tokens=min(max_output, ceiling["max_output_tokens"]),
+    )
+
+
+def execution_budget_limit(
+    requested: Optional[Mapping[str, Any]], key: str, default: int, ceiling: int, allow_zero: bool = False,
+) -> int:
+    """Read an optional non-financial limit from the validated wire object."""
+    if requested is None or key not in requested:
+        return min(default, ceiling)
+    value = requested[key]
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0 or (value == 0 and not allow_zero):
+        raise ValueError(f"executionBudget.{key} must be a {'non-negative' if allow_zero else 'positive'} integer")
+    return min(value, ceiling)
+
+
+def begin_execution_budget(
+    feature: str = AI_CHAT_QUERY,
+    requested: Optional[Mapping[str, Any]] = None,
+) -> ExecutionBudget:
     """Install a policy only when this is the outermost billed operation.
 
     A tool can invoke itinerary generation while servicing a chat turn. In
@@ -66,11 +107,7 @@ def begin_execution_budget(feature: str = AI_CHAT_QUERY) -> ExecutionBudget:
     existing = _budget.get()
     if existing is not None:
         return existing
-    try:
-        policy = AI_EXECUTION_POLICIES[feature]
-    except KeyError as exc:
-        raise ValueError(f"Unknown AI execution policy: {feature}") from exc
-    budget = ExecutionBudget(**policy)
+    budget = parse_execution_budget(feature, requested)
     _budget.set(budget)
     return budget
 
@@ -94,14 +131,10 @@ def enforce_input_budget(system_prompt: str, user_message: str) -> None:
         return
     est = estimate_text_tokens(system_prompt, user_message)
     if est > budget.remaining_input_tokens:
-        import structlog
-        structlog.get_logger().warning(
-            "DEBUG input budget exceeded",
-            estimated=est,
-            remaining=budget.remaining_input_tokens,
-            consumed=budget.consumed_input_tokens,
-            sys_prompt_chars=len(system_prompt or ""),
-            user_msg_chars=len(user_message or ""),
+        import logging
+        logging.getLogger(__name__).warning(
+            "Input budget exceeded estimated=%s remaining=%s consumed=%s",
+            est, budget.remaining_input_tokens, budget.consumed_input_tokens,
         )
         raise ExecutionLimitExceeded("Provider-visible input exceeds the operation limit")
 

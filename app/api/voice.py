@@ -1,4 +1,6 @@
 import base64
+import math
+import json
 import av
 
 import logging
@@ -27,6 +29,7 @@ from app.core.execution_limits import (
     VOICE_MEDIA_EXECUTION_POLICY,
     begin_execution_budget,
     end_execution_budget,
+    execution_budget_limit,
 )
 from app.core.usage import (
     begin_usage_tracking,
@@ -248,6 +251,7 @@ async def voice_endpoint(
     lat: Optional[float] = Form(None),
     lon: Optional[float] = Form(None),
     conversation_id: Optional[str] = Form(None),
+    executionBudget: Optional[str] = Form(None),
     user: dict = Depends(rate_limit),
 ):
     enforce_rate_limit(request, "voice", user)
@@ -261,7 +265,7 @@ async def voice_endpoint(
 
     mime_type = _normalise_audio_mime(audio.content_type or "audio/mpeg")
     try:
-        validate_voice_media(audio_bytes, mime_type)
+        audio_duration_seconds = validate_voice_media(audio_bytes, mime_type)
     except VoiceMediaValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -290,8 +294,29 @@ async def voice_endpoint(
         )
 
     try:
+        try:
+            requested_budget = json.loads(executionBudget) if executionBudget else None
+            if requested_budget is not None and not isinstance(requested_budget, dict):
+                raise ValueError("executionBudget must be an object")
+            begin_execution_budget(REAL_TIME_TRANSLATION, requested_budget)
+            max_audio_duration = execution_budget_limit(
+                requested_budget, "maxAudioDurationSeconds",
+                int(VOICE_MAX_AUDIO_DURATION_SECONDS),
+                int(VOICE_MAX_AUDIO_DURATION_SECONDS),
+            )
+            max_audio_input_tokens = execution_budget_limit(
+                requested_budget, "maxAudioInputTokens",
+                VOICE_MAX_AUDIO_INPUT_TOKENS,
+                VOICE_MAX_AUDIO_INPUT_TOKENS,
+            )
+            # The same bounded conversion used by Core's reservation contract:
+            # 60 validated seconds maps to at most 1,920 audio input tokens.
+            estimated_audio_tokens = math.ceil(audio_duration_seconds * 32)
+            if audio_duration_seconds > max_audio_duration or estimated_audio_tokens > max_audio_input_tokens:
+                raise ValueError("Audio exceeds execution budget")
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         begin_usage_tracking()
-        begin_execution_budget(REAL_TIME_TRANSLATION)
         async with trace_turn(
             feature="voice",
             user_id=get_user_id(user),

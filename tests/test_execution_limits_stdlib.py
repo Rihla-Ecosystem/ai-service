@@ -3,8 +3,9 @@
 import unittest
 
 from app.core.execution_limits import (
+    AI_CONTEXT_ANALYZE,
     AI_CHAT_QUERY,
-    AI_EXECUTION_POLICIES,
+    AI_EXECUTION_SAFETY_CEILINGS,
     AI_IMAGE_ANALYSIS,
     AI_TRIP_ITINERARY,
     CHAT_MAX_INPUT_TOKENS,
@@ -13,6 +14,7 @@ from app.core.execution_limits import (
     begin_execution_budget,
     current_execution_budget,
     end_execution_budget,
+    execution_budget_limit,
     enforce_input_budget,
     estimate_text_tokens,
     output_limit,
@@ -25,25 +27,36 @@ class ExecutionLimitTests(unittest.TestCase):
     def tearDown(self):
         end_execution_budget()
 
-    def test_feature_policies_are_central_and_installed_at_operation_start(self):
+    def test_core_budget_is_installed_and_clamped_to_local_safety_ceiling(self):
         expected = {
-            AI_CHAT_QUERY: (6000, 800),
-            AI_IMAGE_ANALYSIS: (3000, 400),
-            REAL_TIME_TRANSLATION: (1000, 500),
-            AI_TRIP_ITINERARY: (8000, 1000),
+            AI_CHAT_QUERY: (16000, 2048),
+            AI_IMAGE_ANALYSIS: (4000, 1024),
+            REAL_TIME_TRANSLATION: (2000, 1024),
+            AI_TRIP_ITINERARY: (12000, 2048),
+            AI_CONTEXT_ANALYZE: (4000, 1024),
         }
         self.assertEqual(
             {feature: (policy["max_input_tokens"], policy["max_output_tokens"])
-             for feature, policy in AI_EXECUTION_POLICIES.items()},
+             for feature, policy in AI_EXECUTION_SAFETY_CEILINGS.items()},
             expected,
         )
-        for feature, limits in expected.items():
-            budget = begin_execution_budget(feature)
-            self.assertEqual((budget.max_input_tokens, budget.max_output_tokens), limits)
-            end_execution_budget()
+        budget = begin_execution_budget(AI_CHAT_QUERY, {"maxInputTokens": 12000, "maxOutputTokens": 1200})
+        self.assertEqual((budget.max_input_tokens, budget.max_output_tokens), (12000, 1200))
+        end_execution_budget()
+        budget = begin_execution_budget(AI_CHAT_QUERY, {"maxInputTokens": 99999, "maxOutputTokens": 99999})
+        self.assertEqual((budget.max_input_tokens, budget.max_output_tokens), expected[AI_CHAT_QUERY])
+
+    def test_context_analyze_budget_is_clamped_and_enforced(self):
+        budget = begin_execution_budget(
+            AI_CONTEXT_ANALYZE, {"maxInputTokens": 2000, "maxOutputTokens": 600}
+        )
+        self.assertEqual((budget.max_input_tokens, budget.max_output_tokens), (2000, 600))
+        self.assertEqual(output_limit(1024), 600)
+        with self.assertRaises(ExecutionLimitExceeded):
+            enforce_input_budget("s" * 4000, "u" * 4004)
 
     def test_multi_call_budget_uses_actual_output(self):
-        begin_execution_budget(AI_CHAT_QUERY)
+        begin_execution_budget(AI_CHAT_QUERY, {"maxInputTokens": 6000, "maxOutputTokens": 800})
         self.assertEqual(output_limit(1200), 800)
         record_output_tokens(300, "TEXT_CHAT")
         self.assertEqual(output_limit(1200), 500)
@@ -53,8 +66,16 @@ class ExecutionLimitTests(unittest.TestCase):
         with self.assertRaises(ExecutionLimitExceeded):
             output_limit(1200)
 
+    def test_optional_wire_limits_are_validated_and_clamped(self):
+        requested = {"maxHistoryMessages": 999, "maxHistoryTokens": 200, "maxCurrentMessageTokens": 300}
+        self.assertEqual(execution_budget_limit(requested, "maxHistoryMessages", 100, 100, allow_zero=True), 100)
+        self.assertEqual(execution_budget_limit(requested, "maxHistoryTokens", 1000, 6000, allow_zero=True), 200)
+        self.assertEqual(execution_budget_limit(requested, "maxCurrentMessageTokens", 1000, 6000), 300)
+        with self.assertRaises(ValueError):
+            execution_budget_limit({"maxHistoryTokens": "bad"}, "maxHistoryTokens", 1, 10, allow_zero=True)
+
     def test_final_provider_visible_input_is_preflight_limited(self):
-        begin_execution_budget(AI_CHAT_QUERY)
+        begin_execution_budget(AI_CHAT_QUERY, {"maxInputTokens": 6000, "maxOutputTokens": 800})
         system = "s" * 4000
         user = "u" * 20_000
         self.assertLessEqual(estimate_text_tokens(system, user), CHAT_MAX_INPUT_TOKENS)
@@ -63,12 +84,12 @@ class ExecutionLimitTests(unittest.TestCase):
             enforce_input_budget("s" * 4000, "u" * 20_004)
 
     def test_tts_does_not_consume_text_operation_budget(self):
-        begin_execution_budget(REAL_TIME_TRANSLATION)
+        begin_execution_budget(REAL_TIME_TRANSLATION, {"maxInputTokens": 1000, "maxOutputTokens": 500})
         record_output_tokens(500, "TEXT_TO_SPEECH")
         self.assertEqual(output_limit(1200), 500)
 
     def test_multi_call_input_budget_uses_actual_provider_usage(self):
-        begin_execution_budget(AI_CHAT_QUERY)
+        begin_execution_budget(AI_CHAT_QUERY, {"maxInputTokens": 6000, "maxOutputTokens": 800})
         self.assertEqual(current_execution_budget().remaining_input_tokens, 6000)
         enforce_input_budget("", "a" * 16000)  # estimated 4000
         record_input_tokens(4000, "TEXT_CHAT")
@@ -81,7 +102,7 @@ class ExecutionLimitTests(unittest.TestCase):
         enforce_input_budget("", "c" * 4000)  # estimated 1000
 
     def test_retry_does_not_consume_a_second_input_budget(self):
-        begin_execution_budget(AI_CHAT_QUERY)
+        begin_execution_budget(AI_CHAT_QUERY, {"maxInputTokens": 6000, "maxOutputTokens": 800})
         # Preflight can be repeated for a retry; only a completed logical call
         # reports usage and consumes the operation budget.
         enforce_input_budget("", "a" * 16000)
@@ -91,7 +112,7 @@ class ExecutionLimitTests(unittest.TestCase):
         self.assertEqual(current_execution_budget().remaining_input_tokens, 2000)
 
     def test_itinerary_nested_in_chat_reuses_the_parent_budget(self):
-        chat_budget = begin_execution_budget(AI_CHAT_QUERY)
+        chat_budget = begin_execution_budget(AI_CHAT_QUERY, {"maxInputTokens": 6000, "maxOutputTokens": 800})
         record_output_tokens(300, "TEXT_CHAT")
         nested_budget = begin_execution_budget(AI_TRIP_ITINERARY)
         self.assertIs(nested_budget, chat_budget)

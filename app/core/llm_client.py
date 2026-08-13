@@ -235,6 +235,7 @@ class GeminiClient:
         provider_call_id: Optional[str] = None,
         error_category: Optional[str] = None,
         http_status: Optional[int] = None,
+        usage_confirmed: Optional[bool] = None,
     ) -> None:
         """Record one diagnostic ProviderAttempt; no content, never priced.
 
@@ -244,6 +245,8 @@ class GeminiClient:
         ``provider_call_started_at`` carries the recorded start time.
         Pre-provider local validation/preparation failures never reach here.
         """
+        if usage_confirmed is None:
+            usage_confirmed = outcome == ATTEMPT_OUTCOME_SUCCEEDED and provider_call_id is not None
         attempt = make_provider_attempt(
             provider=PROVIDER_GOOGLE,
             operation=operation,
@@ -253,7 +256,9 @@ class GeminiClient:
             outcome=outcome,
             provider_call_started=True,
             provider_call_started_at=provider_call_started_at,
+            provider_completed_at=self._now_iso(),
             provider_response_received=provider_response_received,
+            usage_confirmed=usage_confirmed,
             provider_call_id=provider_call_id,
             error_category=error_category,
             http_status=http_status,
@@ -444,6 +449,7 @@ class GeminiClient:
                 provider_call_started_at=started,
                 provider_response_received=True,
                 provider_call_id=call_id,
+                usage_confirmed=True,
             )
             return response
         except Exception as e:
@@ -459,6 +465,7 @@ class GeminiClient:
                 provider_response_received=False,
                 error_category=error_category,
                 http_status=http_status,
+                usage_confirmed=False,
             )
             key.mark_failed(cooldown_seconds=self.cooldown_seconds)
             return await self.generate(

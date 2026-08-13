@@ -32,6 +32,7 @@ class ItineraryRequest(BaseModel):
     style: str = Field("cultural", min_length=1)
     cities: Optional[List[str]] = Field(None, max_length=10)
     base_currency: Optional[str] = Field(None, min_length=3, max_length=3)
+    executionBudget: Optional[Dict[str, Any]] = None
 
 
 class ItineraryResponse(BaseModel):
@@ -56,8 +57,11 @@ async def itinerary_endpoint(req: ItineraryRequest, user: dict = Depends(rate_li
     if guard.blocked:
         raise HTTPException(status_code=400, detail=f"Request blocked: {guard.reason}")
 
+    try:
+        begin_execution_budget(AI_TRIP_ITINERARY, req.executionBudget)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     begin_usage_tracking()
-    begin_execution_budget(AI_TRIP_ITINERARY)
     try:
         async with trace_turn(
             feature="itinerary",

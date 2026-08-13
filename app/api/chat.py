@@ -20,13 +20,14 @@ from app.core.execution_limits import (
     AI_CHAT_QUERY,
     begin_execution_budget,
     end_execution_budget,
+    execution_budget_limit,
     estimate_text_tokens,
 )
 
 
 router = APIRouter()
 
-MAX_HISTORY_MESSAGES = 20
+MAX_HISTORY_MESSAGES = 100
 MAX_HISTORY_MESSAGE_CHARS = 4000
 MAX_HISTORY_TOKENS = 6000
 
@@ -49,17 +50,18 @@ class ChatRequest(BaseModel):
     user_journeys: Optional[Any] = None
     currency: Optional[Dict[str, Any]] = None
     history: List[ChatHistoryMessage] = Field(default_factory=list, max_length=MAX_HISTORY_MESSAGES)
+    executionBudget: Optional[Dict[str, Any]] = None
 
 
-def format_history(history: List[ChatHistoryMessage]) -> str:
+def format_history(history: List[ChatHistoryMessage], max_messages: int, max_tokens: int) -> str:
     """Render Core's bounded role/content history without accepting metadata."""
     if not history:
         return ""
     selected = []
     used = 0
-    for item in reversed(history):
+    for item in reversed(history[-max_messages:]):
         tokens = estimate_text_tokens(item.role, item.content)
-        if used + tokens > MAX_HISTORY_TOKENS:
+        if used + tokens > max_tokens:
             break
         selected.append(item)
         used += tokens
@@ -85,7 +87,21 @@ class ChatResponse(BaseModel):
 
 async def chat_endpoint(req: ChatRequest, user: dict = Depends(rate_limit)):
     begin_usage_tracking()
-    begin_execution_budget(AI_CHAT_QUERY)
+    try:
+        budget = begin_execution_budget(AI_CHAT_QUERY, req.executionBudget)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    requested = req.executionBudget or {}
+    try:
+        max_current = execution_budget_limit(requested, "maxCurrentMessageTokens", budget.max_input_tokens, budget.max_input_tokens)
+        max_history_messages = execution_budget_limit(requested, "maxHistoryMessages", MAX_HISTORY_MESSAGES, MAX_HISTORY_MESSAGES, allow_zero=True)
+        max_history_tokens = execution_budget_limit(requested, "maxHistoryTokens", budget.max_input_tokens, budget.max_input_tokens, allow_zero=True)
+    except ValueError as exc:
+        end_execution_budget()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if estimate_text_tokens(req.message) > max_current:
+        end_execution_budget()
+        raise HTTPException(status_code=422, detail="Current message exceeds execution budget")
 
     context = {}
     if req.user:
@@ -114,7 +130,7 @@ async def chat_endpoint(req: ChatRequest, user: dict = Depends(rate_limit)):
             feature="chat", user_id=get_user_id(user), session_id=req.conversation_id,
             persona=req.persona, input_text=req.message, tags=["chat", req.persona],
         ) as span:
-            history = format_history(req.history)
+            history = format_history(req.history, max_history_messages, max_history_tokens)
             message = f"{history}\n\nCurrent user message: {req.message}" if history else req.message
             result = await route_and_respond(message=message, persona=req.persona, context=context)
             if span is not None:

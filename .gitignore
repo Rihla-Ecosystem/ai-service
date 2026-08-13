@@ -64,3 +64,5 @@ poetry.toml
 
 # Cloud deployment env (gitignored)
 .env.cloud
+
+.venv-ai-service/

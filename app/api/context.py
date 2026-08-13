@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.core.guardrails import check_output
 from app.core.llm_client import OP_TEXT_GENERATION
+from app.core.execution_limits import AI_CONTEXT_ANALYZE, begin_execution_budget, end_execution_budget
 from app.core.ratelimit import rate_limit
 from app.core.usage import (
     begin_usage_tracking,
@@ -18,6 +19,8 @@ router = APIRouter()
 
 class ContextAnalyzeRequest(BaseModel):
     context: Dict[str, Any] = Field(..., description="Complete aggregated Context Object")
+    operationId: Optional[str] = None
+    executionBudget: Optional[Dict[str, Any]] = None
 
 
 class GeneratedNotification(BaseModel):
@@ -62,6 +65,10 @@ def _require_llm():
 
 @router.post("/analyze", response_model=ContextAnalyzeResponse)
 async def analyze_context(req: ContextAnalyzeRequest, user: dict = Depends(rate_limit)):
+    try:
+        begin_execution_budget(AI_CONTEXT_ANALYZE, req.executionBudget)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     context = req.context
 
     geo = context.get("geoContext") or {}
@@ -178,6 +185,8 @@ async def analyze_context(req: ContextAnalyzeRequest, user: dict = Depends(rate_
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Context analysis failed: {str(e)}")
+    finally:
+        end_execution_budget()
 
 
 def _derive_notifications(report: Dict[str, Any]) -> List[Dict[str, Any]]:

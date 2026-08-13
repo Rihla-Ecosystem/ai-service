@@ -69,6 +69,7 @@ async def identify_landmark(
     lat: Optional[float] = Form(None),
     lon: Optional[float] = Form(None),
     radius: int = Form(500),
+    executionBudget: Optional[str] = Form(None),
     user: dict = Depends(rate_limit),
 ):
     image_bytes = await image.read()
@@ -94,8 +95,14 @@ async def identify_landmark(
 
     mime_type = image.content_type or "image/jpeg"
 
+    try:
+        requested_budget = json_mod.loads(executionBudget) if executionBudget else None
+        if requested_budget is not None and not isinstance(requested_budget, dict):
+            raise ValueError("executionBudget must be an object")
+        begin_execution_budget(AI_IMAGE_ANALYSIS, requested_budget)
+    except (ValueError, json_mod.JSONDecodeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     begin_usage_tracking()
-    begin_execution_budget(AI_IMAGE_ANALYSIS)
     try:
         async with trace_turn(
             feature="identify",
