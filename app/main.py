@@ -15,6 +15,7 @@ from app.api import (
     identify,
     ingest,
     itinerary,
+    legal,
     monitoring,
     stream,
     voice,
@@ -126,4 +127,5 @@ app.include_router(ingest.router, prefix="/ingest", tags=["ingest"])
 app.include_router(admin_assistant.router, prefix="/admin", tags=["admin"])
 
 app.include_router(context.router, tags=["context"])
+app.include_router(legal.router, tags=["legal"])
 
