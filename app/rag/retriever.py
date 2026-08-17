@@ -165,9 +165,15 @@ async def _embed_http(inputs: List[str]) -> List[List[float]]:
             valid_prompt = isinstance(prompt_tokens, int) and not isinstance(prompt_tokens, bool) and prompt_tokens >= 0
             valid_total = isinstance(total_tokens, int) and not isinstance(total_tokens, bool) and total_tokens >= 0
 
+            # Embedding APIs return token counts for the whole (input) batch.
+            # Prefer `prompt_tokens` when present; otherwise fall back to
+            # `total_tokens` so a total-only provider response still yields a
+            # billable input token count instead of an UNPRICED USAGE_MISSING.
+            input_tokens = prompt_tokens if valid_prompt else (total_tokens if valid_total else None)
+
             call_counts = {}
-            if valid_prompt:
-                call_counts["inputTokens"] = prompt_tokens
+            if input_tokens is not None:
+                call_counts["inputTokens"] = input_tokens
             if valid_total:
                 call_counts["totalTokens"] = total_tokens
 

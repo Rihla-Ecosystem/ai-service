@@ -75,6 +75,40 @@ def test_successful_jina_embedding_in_active_scope():
     asyncio.run(_test())
 
 
+def test_total_tokens_only_surface_is_billable_input():
+    async def _test():
+        mock_response = httpx.Response(
+            200,
+            json={
+                "model": "jina-embeddings-v4",
+                "usage": {
+                    "total_tokens": 9,
+                },
+                "data": [{"embedding": [0.1, 0.2]}],
+            },
+        )
+
+        begin_usage_tracking()
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
+            embeddings = await _embed_http(["test query"])
+
+        assert len(embeddings) == 1
+        calls, _ = consume_usage_and_attempts()
+
+        assert len(calls) == 1
+        jina_call = calls[0]
+        assert jina_call["provider"] == PROVIDER_JINA
+        assert jina_call["operation"] == OP_EMBEDDING
+        assert jina_call["inputTokens"] == 9
+        assert jina_call["totalTokens"] == 9
+        assert jina_call["providerCallMade"] is True
+        assert jina_call["usageSource"] == "PROVIDER_RESPONSE"
+        assert jina_call["usageCompleteness"] == "PARTIAL"
+        assert jina_call["accountingSemantics"] == "SEPARATELY_BILLABLE"
+
+    asyncio.run(_test())
+
+
 def test_batch_request_produces_single_provider_call():
     async def _test():
         mock_response = httpx.Response(
@@ -368,7 +402,7 @@ def test_negative_provider_token_counts_omitted():
         calls, _ = consume_usage_and_attempts()
         assert len(calls) == 1
         call1 = calls[0]
-        assert "inputTokens" not in call1
+        assert call1["inputTokens"] == 25
         assert call1["totalTokens"] == 25
         assert call1["usageCompleteness"] == "PARTIAL"
 
