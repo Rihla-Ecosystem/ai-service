@@ -1,4 +1,5 @@
 import json
+import re
 import structlog
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -304,7 +305,9 @@ async def call_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
     return f"Unknown tool: {tool_name}"
 
 
-async def _get_nearby_attractions(lat: float, lon: float, radius: int = 1000) -> str:
+async def _fetch_nearby_places(lat: float, lon: float, radius: int = 5000) -> list[dict]:
+    """Raw nearby POIs (name/lat/lon/categories) from GeoContext — used to
+    attach real coordinates to itinerary items for the map view."""
     import httpx
     try:
         async with httpx.AsyncClient() as client:
@@ -316,17 +319,23 @@ async def _get_nearby_attractions(lat: float, lon: float, radius: int = 1000) ->
             )
             if resp.status_code == 200:
                 data = resp.json()
-                if isinstance(data, list) and len(data) > 0:
-                    sites = []
-                    for s in data[:10]:
-                        name = s.get("name", "Unknown")
-                        cat = ", ".join(s.get("categories", []))
-                        sites.append(f"- {name} ({cat})")
-                    return "Nearby attractions:\n" + "\n".join(sites)
-                return "No nearby attractions found."
-            return f"Error fetching attractions: {resp.status_code}"
-    except Exception as e:
-        return f"Unable to fetch nearby attractions: {str(e)}"
+                if isinstance(data, list):
+                    return data
+            return []
+    except Exception:
+        return []
+
+
+async def _get_nearby_attractions(lat: float, lon: float, radius: int = 1000) -> str:
+    places = await _fetch_nearby_places(lat, lon, radius)
+    if not places:
+        return "No nearby attractions found."
+    sites = []
+    for s in places[:10]:
+        name = s.get("name", "Unknown")
+        cat = ", ".join(s.get("categories", []))
+        sites.append(f"- {name} ({cat})")
+    return "Nearby attractions:\n" + "\n".join(sites)
 
 
 async def _search_attractions(query: str, category: str = "", city: str = "") -> str:
@@ -486,6 +495,115 @@ async def _suggest_cities(interests: list[str], days: int, style: str) -> list[s
     return ["cairo", "luxor"]
 
 
+def _norm_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def _build_place_index(city_data: Dict[str, Dict[str, Any]]) -> Dict[str, list[dict]]:
+    """city_lower -> nearby POIs [{name, lat, lon, categories, city}]."""
+    index: Dict[str, list[dict]] = {}
+    for city, data in city_data.items():
+        entries = []
+        for p in data.get("nearby_places") or []:
+            name = p.get("name") or p.get("name_en") or ""
+            if not name:
+                continue
+            try:
+                lat = float(p.get("lat"))
+                lon = float(p.get("lon"))
+            except (TypeError, ValueError):
+                continue
+            variants = [name]
+            for k in ("name_en", "name_ar"):
+                if p.get(k):
+                    variants.append(str(p[k]))
+            entries.append(
+                {
+                    "name": name,
+                    "names": variants,
+                    "lat": lat,
+                    "lon": lon,
+                    "categories": p.get("categories") or [],
+                    "city": city,
+                }
+            )
+        index[city] = entries
+    return index
+
+
+def _match_place(activity: str, entries: list[dict]) -> Optional[dict]:
+    q = _norm_name(str(activity))
+    if not q or not entries:
+        return None
+    q_tokens = set(q.split())
+    best: Optional[dict] = None
+    best_score = -1
+    for e in entries:
+        for n in e["names"]:
+            nrm = _norm_name(str(n))
+            if not nrm:
+                continue
+            if nrm == q:
+                return e
+            if q in nrm or nrm in q:
+                score = max(len(q), len(nrm))
+            else:
+                overlap = len(q_tokens & set(nrm.split()))
+                if overlap < 2:
+                    continue
+                score = overlap
+            if score > best_score:
+                best_score, best = score, e
+    return best if best_score >= 0 else None
+
+
+def _attach_coordinates(structured: dict, city_data: Dict[str, Dict[str, Any]]) -> dict:
+    """Annotate itinerary items with best-effort lat/lon and build places[] for
+    the map view. Mutates and returns structured."""
+    index = _build_place_index(city_data)
+    seen: set = set()
+    places: list[dict] = []
+    days = structured.get("days") or []
+    for day in days:
+        city_title = str(day.get("city", "")).strip().lower()
+        entries = index.get(city_title, [])
+        if not entries and city_title:
+            for idx_city, idx_entries in index.items():
+                if city_title in idx_city or idx_city in city_title:
+                    entries = idx_entries
+                    break
+        city_coord = EGYPT_CITIES.get(city_title, EGYPT_CITIES.get("cairo", {}))
+        for item in day.get("items") or []:
+            activity = str(item.get("activity", ""))
+            match = _match_place(activity, entries) if entries else None
+            lat = lon = None
+            place_name = activity
+            if match:
+                lat, lon = match["lat"], match["lon"]
+                place_name = match["name"]
+            elif city_coord:
+                lat, lon = city_coord.get("lat"), city_coord.get("lon")
+            if lat is not None and lon is not None:
+                item["lat"] = lat
+                item["lon"] = lon
+            key = (place_name, lat, lon)
+            if key not in seen:
+                seen.add(key)
+                places.append(
+                    {
+                        "name": place_name,
+                        "lat": lat,
+                        "lon": lon,
+                        "city": day.get("city"),
+                        "day": day.get("day"),
+                        "type": item.get("type", "attraction"),
+                        "time": item.get("time"),
+                    }
+                )
+    structured["places"] = places
+    return structured
+
+
 async def _recommend_itinerary(
     interests: list[str],
     days: int,
@@ -548,6 +666,15 @@ async def _recommend_itinerary(
                 results[key] = await coro
             except Exception as e:
                 results[key] = f"Error: {str(e)}"
+
+        if coords:
+            results["nearby_places"] = await _fetch_nearby_places(
+                lat=coords["lat"],
+                lon=coords["lon"],
+                radius=5000,
+            )
+        else:
+            results["nearby_places"] = []
 
         return city, results
 
@@ -648,6 +775,8 @@ async def _recommend_itinerary(
         result = json.loads(text)
         markdown = result.get("markdown", text)
         structured = result.get("json", result)
+
+        structured = _attach_coordinates(structured, city_data)
 
         budget_note = ""
         if base_currency:

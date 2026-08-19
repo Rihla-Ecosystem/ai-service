@@ -1,3 +1,6 @@
+import json
+import re
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
@@ -37,12 +40,24 @@ class ItineraryRequest(BaseModel):
 
 class ItineraryResponse(BaseModel):
     itinerary: str
+    structured: Optional[Dict[str, Any]] = None
     blocked: Optional[bool] = None
     reason: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
     model: Optional[str] = None
     providerCalls: Optional[List[Dict[str, Any]]] = None
     providerAttempts: Optional[List[Dict[str, Any]]] = None
+
+
+def _extract_structured(markdown: str) -> Optional[Dict[str, Any]]:
+    match = re.search(r"<!-- structured:\s*(.*?)\s*-->", markdown, re.DOTALL)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(1))
+        return parsed if isinstance(parsed, dict) else None
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 @router.post("", response_model=ItineraryResponse)
@@ -88,6 +103,7 @@ async def itinerary_endpoint(req: ItineraryRequest, user: dict = Depends(rate_li
 
     return ItineraryResponse(
         itinerary=itinerary,
+        structured=_extract_structured(itinerary),
         blocked=False,
         usage=usage,
         model=model,
